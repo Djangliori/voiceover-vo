@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Georgian Voiceover - YouTube Translator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎬 Georgian Voiceover App</h1>
+            <p class="subtitle">Translate YouTube videos to Georgian with natural voiceover</p>
+        </header>
+
+        <main>
+            <div class="input-section">
+                <div class="input-group">
+                    <label for="youtube-url">YouTube Video URL:</label>
+                    <input
+                        type="text"
+                        id="youtube-url"
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        autocomplete="off"
+                    >
+                </div>
+
+                <button id="process-btn" class="btn btn-primary">
+                    <span class="btn-text">Translate to Georgian</span>
+                    <span class="btn-icon">→</span>
+                </button>
+            </div>
+
+            <div id="status-section" class="status-section hidden">
+                <div class="status-card">
+                    <div class="status-header">
+                        <h3>Processing Status</h3>
+                        <div class="spinner"></div>
+                    </div>
+
+                    <div class="progress-bar">
+                        <div id="progress-fill" class="progress-fill"></div>
+                    </div>
+
+                    <p id="status-message" class="status-message">Starting...</p>
+                    <p id="status-percent" class="status-percent">0%</p>
+                </div>
+            </div>
+
+            <div id="result-section" class="result-section hidden">
+                <div class="result-card">
+                    <div class="success-icon">✓</div>
+                    <h3>Processing Complete!</h3>
+                    <p id="video-title" class="video-title"></p>
+                    <button id="download-btn" class="btn btn-success">
+                        <span class="btn-text">Download Video</span>
+                        <span class="btn-icon">⬇</span>
+                    </button>
+                    <button id="new-video-btn" class="btn btn-secondary">
+                        Translate Another Video
+                    </button>
+                </div>
+            </div>
+
+            <div id="error-section" class="error-section hidden">
+                <div class="error-card">
+                    <div class="error-icon">✕</div>
+                    <h3>Error</h3>
+                    <p id="error-message" class="error-message"></p>
+                    <button id="retry-btn" class="btn btn-secondary">
+                        Try Again
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <div class="info-box">
+                <h4>How it works:</h4>
+                <ol>
+                    <li>Video is downloaded from YouTube</li>
+                    <li>Speech is transcribed with timestamps</li>
+                    <li>Text is translated to Georgian</li>
+                    <li>Georgian voiceover is generated</li>
+                    <li>Original audio is lowered and mixed with voiceover</li>
+                    <li>Final video is created with Georgian overdub</li>
+                </ol>
+            </div>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

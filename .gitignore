@@ -1,0 +1,42 @@
+# Credentials and secrets
+google-credentials.json
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Output files
+output/*
+temp/*
+!output/.gitkeep
+!temp/.gitkeep
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+videos.db
+
+# Logs
+*.log
+logs/

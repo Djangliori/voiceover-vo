@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ video.title }} - GeYouTube</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: #0f0f0f;
+            color: #fff;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+        }
+
+        .header {
+            margin-bottom: 30px;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #ff6b6b;
+        }
+
+        .logo span {
+            color: #4ecdc4;
+        }
+
+        .video-container {
+            background: #1a1a1a;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        video {
+            width: 100%;
+            max-height: 720px;
+            display: block;
+        }
+
+        .video-info {
+            padding: 20px;
+        }
+
+        .video-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            line-height: 1.4;
+        }
+
+        .video-meta {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            color: #aaa;
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+
+        .badge {
+            background: #ff6b6b;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #4ecdc4;
+            color: #000;
+        }
+
+        .btn-primary:hover {
+            background: #45b8af;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: #2a2a2a;
+            color: #fff;
+        }
+
+        .btn-secondary:hover {
+            background: #353535;
+        }
+
+        .description {
+            background: #1a1a1a;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .description h3 {
+            margin-bottom: 12px;
+            color: #4ecdc4;
+        }
+
+        .description p {
+            line-height: 1.6;
+            color: #ccc;
+        }
+
+        .back-link {
+            color: #4ecdc4;
+            text-decoration: none;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 20px;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+
+            .video-title {
+                font-size: 16px;
+            }
+
+            .actions {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <a href="/" class="back-link">← Back to Home</a>
+            <div class="logo">Ge<span>YouTube</span></div>
+        </div>
+
+        <div class="video-container">
+            <video controls autoplay>
+                <source src="{{ video.r2_url }}" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+
+            <div class="video-info">
+                <div class="video-title">{{ video.title }}</div>
+
+                <div class="video-meta">
+                    <span class="badge">Georgian Translation</span>
+                    <span>{{ video.view_count }} views</span>
+                </div>
+
+                <div class="actions">
+                    <a href="{{ video.r2_url }}" download class="btn btn-primary">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8 12l-4-4h2.5V2h3v6H12l-4 4z"/>
+                            <path d="M2 14h12v2H2v-2z"/>
+                        </svg>
+                        Download Video
+                    </a>
+                    <a href="{{ video.original_url }}" target="_blank" class="btn btn-secondary">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8 0C3.6 0 0 3.6 0 8s3.6 8 8 8 8-3.6 8-8-3.6-8-8-8zm3.5 11.5l-2.2-1.3-2.3 1.3.6-2.6L5.5 7l2.7-.2L9.3 4.5l1.1 2.3 2.6.2-1.9 1.9.4 2.6z"/>
+                        </svg>
+                        View Original
+                    </a>
+                    <button onclick="shareVideo()" class="btn btn-secondary">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M13 7.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm0 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zM3 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm10.5-1l-4-2.5v1L13 9l-3.5 2.5v1l4-2.5z"/>
+                        </svg>
+                        Share
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="description">
+            <h3>About This Video</h3>
+            <p>
+                This video has been automatically translated to Georgian using AI-powered translation
+                and voiceover technology. The original audio has been lowered and a Georgian voiceover
+                has been added on top, similar to documentary dubbing.
+            </p>
+            <p style="margin-top: 12px;">
+                <strong>Processing:</strong> Speech recognition → AI translation → Georgian TTS → Audio mixing
+            </p>
+        </div>
+
+        <div class="description">
+            <h3>How to Use GeYouTube</h3>
+            <p>
+                To translate any YouTube video to Georgian, simply replace "youtube.com" with "geyoutube.com"
+                in the video URL. For example:
+            </p>
+            <p style="margin-top: 8px; font-family: monospace; background: #2a2a2a; padding: 12px; border-radius: 6px;">
+                youtube.com/watch?v=abc123 → geyoutube.com/watch?v=abc123
+            </p>
+        </div>
+    </div>
+
+    <script>
+        function shareVideo() {
+            const url = window.location.href;
+            if (navigator.share) {
+                navigator.share({
+                    title: '{{ video.title }}',
+                    text: 'Check out this Georgian-translated video on GeYouTube!',
+                    url: url
+                }).catch(() => {});
+            } else {
+                // Fallback: copy to clipboard
+                navigator.clipboard.writeText(url).then(() => {
+                    alert('Link copied to clipboard!');
+                });
+            }
+        }
+    </script>
+</body>
+</html>
