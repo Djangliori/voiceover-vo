@@ -16,7 +16,7 @@ from src.translator import Translator
 from src.tts import TextToSpeech
 from src.audio_mixer import AudioMixer
 from src.video_processor import VideoProcessor
-from src.database import Database
+from src.database import Database, Video
 from src.storage import R2Storage
 from src.logging_config import get_logger
 
@@ -76,7 +76,7 @@ def process_video_task(self, video_id, youtube_url):
         # IMPORTANT: Also update database so frontend can see progress
         try:
             session = self.db.get_session()
-            video = session.query(self.db.Video).filter_by(video_id=video_id).first()
+            video = session.query(Video).filter_by(video_id=video_id).first()
             if video:
                 video.processing_status = 'processing'
                 video.progress = progress or 0
@@ -130,7 +130,7 @@ def process_video_task(self, video_id, youtube_url):
         # Update database with title
         self.db.update_video_status(video_id, 'processing')
         session = self.db.get_session()
-        video = session.query(self.db.Video).filter_by(video_id=video_id).first()
+        video = session.query(Video).filter_by(video_id=video_id).first()
         if video:
             video.title = video_title
             session.commit()
