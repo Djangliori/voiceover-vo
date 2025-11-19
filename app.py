@@ -360,75 +360,87 @@ def process_video():
 @app.route('/status/<video_id>')
 def get_status(video_id):
     """Get processing status (Celery or threading)"""
-    # Validate video ID
     try:
-        video_id = validate_video_id(video_id)
-    except ValidationError as ve:
-        return jsonify({'error': ve.message}), ve.status_code
+        # Validate video ID
+        try:
+            video_id = validate_video_id(video_id)
+        except ValidationError as ve:
+            return jsonify({'error': ve.message}), ve.status_code
 
-    # Check database first
-    video = db.get_video_by_id(video_id)
-    if video:
-        if video.processing_status == 'completed':
-            return jsonify({
-                'complete': True,
-                'status': 'Processing complete!',
-                'progress': 100,
-                'video_id': video_id,
-                'r2_url': video.r2_url,
-                'title': video.title
-            })
-        elif video.processing_status == 'failed':
-            return jsonify({
-                'complete': False,
-                'status': f"Error: {video.error_message}",
-                'error': video.error_message,
-                'progress': 0
-            })
-
-    # Check status based on mode
-    if USE_CELERY:
-        # Check Celery task status
-        task_id = task_id_map.get(video_id)
-        if task_id:
-            task = AsyncResult(task_id)
-
-            if task.state == 'PENDING':
-                return jsonify({
-                    'complete': False,
-                    'status': 'Task pending...',
-                    'progress': 0,
-                    'video_id': video_id
-                })
-            elif task.state == 'PROGRESS':
-                return jsonify({
-                    'complete': False,
-                    **task.info,
-                })
-            elif task.state == 'SUCCESS':
-                result = task.result
+        # Check database first
+        video = db.get_video_by_id(video_id)
+        if video:
+            if video.processing_status == 'completed':
                 return jsonify({
                     'complete': True,
-                    **result
+                    'status': 'Processing complete!',
+                    'progress': 100,
+                    'video_id': video_id,
+                    'r2_url': video.r2_url,
+                    'title': video.title
                 })
-            elif task.state == 'FAILURE':
+            elif video.processing_status == 'failed':
                 return jsonify({
                     'complete': False,
-                    'status': f"Error: {str(task.info)}",
-                    'error': str(task.info),
+                    'status': f"Error: {video.error_message}",
+                    'error': video.error_message,
                     'progress': 0
                 })
-    else:
-        # Check threading status
-        if video_id in processing_status:
-            return jsonify(processing_status[video_id])
 
-    # Default response
-    return jsonify({
-        'complete': False,
-        'status': 'Processing...',
-        'progress': 0
-    })
+        # Check status based on mode
+        if USE_CELERY:
+            # Check Celery task status
+            task_id = task_id_map.get(video_id)
+            if task_id:
+                task = AsyncResult(task_id)
+
+                if task.state == 'PENDING':
+                    return jsonify({
+                        'complete': False,
+                        'status': 'Task pending...',
+                        'progress': 0,
+                        'video_id': video_id
+                    })
+                elif task.state == 'PROGRESS':
+                    return jsonify({
+                        'complete': False,
+                        **task.info,
+                    })
+                elif task.state == 'SUCCESS':
+                    result = task.result
+                    return jsonify({
+                        'complete': True,
+                        **result
+                    })
+                elif task.state == 'FAILURE':
+                    return jsonify({
+                        'complete': False,
+                        'status': f"Error: {str(task.info)}",
+                        'error': str(task.info),
+                        'progress': 0
+                    })
+        else:
+            # Check threading status
+            if video_id in processing_status:
+                return jsonify(processing_status[video_id])
+
+        # Default response
+        return jsonify({
+            'complete': False,
+            'status': 'Processing...',
+            'progress': 0
+        })
+
+    except Exception as e:
+        # Log the error and return JSON error response
+        error_msg = str(e)
+        logger.error("status_check_error", video_id=video_id, error=error_msg, exc_info=True)
+        return jsonify({
+            'error': f'Status check failed: {error_msg}',
+            'complete': False,
+            'status': 'Error checking status',
+            'progress': 0
+        }), 500
 
 
 @app.route('/download/<filename>')
