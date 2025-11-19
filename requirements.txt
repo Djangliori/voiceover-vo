@@ -19,7 +19,7 @@ pydub==0.25.1
 moviepy==1.0.3
 
 # Speech Recognition (local)
-openai-whisper==20231117
+git+https://github.com/openai/whisper.git
 
 # Database
 sqlalchemy==2.0.23
