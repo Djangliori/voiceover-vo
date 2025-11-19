@@ -15,11 +15,11 @@ elevenlabs==2.23.0
 yt-dlp==2024.10.7
 
 # Audio/Video Processing
-pydub>=0.25.1
+pydub==0.25.1
 moviepy==1.0.3
 
-# Speech Recognition (local)
-git+https://github.com/openai/whisper.git
+# Speech Recognition (local) - using PyPI package (faster, no build)
+openai-whisper==20231117
 
 # Database
 sqlalchemy==2.0.23
