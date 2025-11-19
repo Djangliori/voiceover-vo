@@ -20,6 +20,10 @@ from celery.result import AsyncResult
 # Load environment variables
 load_dotenv()
 
+# Setup structured logging
+from src.logging_config import get_logger
+logger = get_logger(__name__)
+
 # Set Google credentials if file exists
 google_creds_path = os.path.join(
     os.path.dirname(__file__),
@@ -46,8 +50,9 @@ db = Database()
 try:
     storage = R2Storage()
     use_r2 = True
+    logger.info("r2_storage_initialized", status="success")
 except Exception as e:
-    print(f"R2 storage not configured: {e}")
+    logger.warning("r2_storage_not_configured", error=str(e))
     storage = None
     use_r2 = False
 
@@ -211,7 +216,7 @@ def process_video():
 
     except Exception as e:
         error_msg = str(e)
-        traceback.print_exc()
+        logger.error("process_video_error", error=error_msg, exc_info=True)
         return jsonify({'error': error_msg}), 500
 
 
@@ -290,6 +295,12 @@ def download_file(filename):
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', os.getenv('FLASK_PORT', 5000)))
+
+    logger.info("server_starting",
+                port=port,
+                database='PostgreSQL' if os.getenv('DATABASE_URL') else 'SQLite',
+                storage='Cloudflare R2' if use_r2 else 'Local files')
+
     print(f"""
 ╔══════════════════════════════════════════════════════════════╗
 ║  Georgian Voiceover App - geyoutube.com                      ║

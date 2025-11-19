@@ -18,8 +18,10 @@ from src.audio_mixer import AudioMixer
 from src.video_processor import VideoProcessor
 from src.database import Database
 from src.storage import R2Storage
+from src.logging_config import get_logger
 
 load_dotenv()
+logger = get_logger(__name__)
 
 
 class CallbackTask(Task):
@@ -69,7 +71,7 @@ def process_video_task(self, video_id, youtube_url):
                 'video_id': video_id
             }
         )
-        print(f"[{video_id}] {message}")
+        logger.info("task_progress", video_id=video_id, status=message, progress=progress or 0)
 
     try:
         # Configuration
@@ -185,16 +187,18 @@ def process_video_task(self, video_id, youtube_url):
     except Exception as exc:
         # Log error
         error_msg = str(exc)
-        traceback.print_exc()
+        logger.error("task_failed", video_id=video_id, error=error_msg, exc_info=True)
 
         # Update database
         self.db.update_video_status(video_id, 'failed', error_message=error_msg)
 
         # Retry task if possible
         if self.request.retries < self.max_retries:
+            logger.info("task_retry", video_id=video_id, retry_count=self.request.retries + 1)
             raise self.retry(exc=exc, countdown=60)
 
         # If all retries exhausted, return failure
+        logger.error("task_failed_all_retries", video_id=video_id, max_retries=self.max_retries)
         return {
             'status': 'failed',
             'video_id': video_id,
