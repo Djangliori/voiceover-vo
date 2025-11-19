@@ -35,6 +35,13 @@ if os.path.exists(google_creds_path):
 # Import database and tasks
 from src.database import Database
 from src.storage import R2Storage
+from src.validators import (
+    validate_youtube_url,
+    validate_video_id,
+    validate_json_request,
+    sanitize_filename,
+    ValidationError
+)
 
 # Try to import Celery tasks and check if Redis is available
 try:
@@ -292,19 +299,18 @@ def popular():
 
 
 @app.route('/process', methods=['POST'])
+@validate_json_request(required_fields=['url'])
 def process_video():
     """Legacy API endpoint for processing videos"""
     try:
         data = request.json
         youtube_url = data.get('url')
 
-        if not youtube_url:
-            return jsonify({'error': 'No URL provided'}), 400
-
-        # Extract video ID
-        video_id = extract_video_id(youtube_url)
-        if not video_id:
-            return jsonify({'error': 'Invalid YouTube URL'}), 400
+        # Validate and extract video ID using new validator
+        try:
+            video_id = validate_youtube_url(youtube_url)
+        except ValidationError as ve:
+            return jsonify({'error': ve.message}), ve.status_code
 
         # Check if already processed
         video = db.get_video_by_id(video_id)
@@ -354,6 +360,12 @@ def process_video():
 @app.route('/status/<video_id>')
 def get_status(video_id):
     """Get processing status (Celery or threading)"""
+    # Validate video ID
+    try:
+        video_id = validate_video_id(video_id)
+    except ValidationError as ve:
+        return jsonify({'error': ve.message}), ve.status_code
+
     # Check database first
     video = db.get_video_by_id(video_id)
     if video:
@@ -422,7 +434,20 @@ def get_status(video_id):
 @app.route('/download/<filename>')
 def download_file(filename):
     """Download processed video (fallback if R2 not configured)"""
+    # Sanitize filename to prevent path traversal attacks
+    try:
+        filename = sanitize_filename(filename)
+    except ValidationError as ve:
+        return jsonify({'error': ve.message}), ve.status_code
+
     file_path = os.path.join(app.config['OUTPUT_DIR'], filename)
+
+    # Double-check the resolved path is within OUTPUT_DIR
+    output_dir_abs = os.path.abspath(app.config['OUTPUT_DIR'])
+    file_path_abs = os.path.abspath(file_path)
+    if not file_path_abs.startswith(output_dir_abs):
+        return jsonify({'error': 'Invalid file path'}), 403
+
     if os.path.exists(file_path):
         return send_file(file_path, as_attachment=True)
     else:

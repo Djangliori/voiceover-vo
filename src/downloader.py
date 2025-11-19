@@ -100,3 +100,17 @@ class VideoDownloader:
         for file in files_to_remove:
             if file.exists():
                 file.unlink()
+
+        # Also clean up all segment files (segment_0000.wav, segment_0001.wav, etc.)
+        for segment_file in self.temp_dir.glob("segment_*.wav"):
+            try:
+                segment_file.unlink()
+            except Exception:
+                pass  # Ignore errors for individual segment cleanup
+
+        # Clean up any other temporary files like temp_mixed_*.wav from audio_mixer
+        for temp_mixed_file in self.temp_dir.glob("temp_mixed_*.wav"):
+            try:
+                temp_mixed_file.unlink()
+            except Exception:
+                pass

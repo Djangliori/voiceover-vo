@@ -5,10 +5,6 @@ flask-cors==4.0.0
 # Task Queue
 celery==5.3.4
 redis==5.0.1
-flower==2.0.1
-
-# Google Cloud APIs
-google-cloud-speech==2.26.0
 
 # OpenAI API (for AI-powered translation)
 openai>=1.0.0

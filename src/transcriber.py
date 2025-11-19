@@ -7,6 +7,35 @@ import os
 from google.cloud import speech
 import whisper
 from pathlib import Path
+import threading
+
+
+# Singleton Whisper model cache
+class WhisperModelSingleton:
+    """Thread-safe singleton for Whisper model to avoid reloading"""
+    _instance = None
+    _lock = threading.Lock()
+    _model = None
+    _model_size = None
+
+    @classmethod
+    def get_model(cls, model_size='base'):
+        """
+        Get or create the Whisper model instance
+
+        Args:
+            model_size: Model size to load (tiny, base, small, medium, large)
+
+        Returns:
+            Loaded Whisper model
+        """
+        with cls._lock:
+            # Reload if different model size requested
+            if cls._model is None or cls._model_size != model_size:
+                print(f"Loading Whisper model: {model_size} (singleton)")
+                cls._model = whisper.load_model(model_size)
+                cls._model_size = model_size
+            return cls._model
 
 
 class Transcriber:
@@ -23,10 +52,9 @@ class Transcriber:
         if use_google_cloud:
             self.client = speech.SpeechClient()
         else:
-            # Load Whisper model (will download on first use)
+            # Use singleton to get cached Whisper model
             model_size = os.getenv('WHISPER_MODEL', 'base')
-            print(f"Loading Whisper model: {model_size}")
-            self.model = whisper.load_model(model_size)
+            self.model = WhisperModelSingleton.get_model(model_size)
 
     def transcribe(self, audio_path, progress_callback=None):
         """

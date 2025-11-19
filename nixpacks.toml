@@ -2,7 +2,22 @@
 nixPkgs = ["python312", "ffmpeg"]
 
 [phases.install]
-cmds = ["pip install -r requirements.txt"]
+# Use pip cache and install with optimizations
+cmds = [
+  "mkdir -p /root/.cache/pip",
+  "pip install --upgrade pip setuptools wheel",
+  "pip install -r requirements.txt"
+]
+
+# Cache pip packages between builds
+[phases.install.cacheDirectories]
+paths = ["/root/.cache/pip"]
+
+# Pre-download Whisper model during build (not runtime)
+[phases.build]
+cmds = [
+  "python3 -c 'import whisper; whisper.load_model(\"base\")'"
+]
 
 [start]
 cmd = "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 600 app:app"

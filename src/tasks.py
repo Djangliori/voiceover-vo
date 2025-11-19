@@ -173,9 +173,6 @@ def process_video_task(self, video_id, youtube_url):
         update_progress("Processing complete!", 100)
         self.db.update_video_status(video_id, 'completed', r2_url=r2_url)
 
-        # Cleanup temporary files
-        downloader.cleanup(video_id)
-
         return {
             'status': 'completed',
             'video_id': video_id,
@@ -196,6 +193,14 @@ def process_video_task(self, video_id, youtube_url):
         if self.request.retries < self.max_retries:
             logger.info("task_retry", video_id=video_id, retry_count=self.request.retries + 1)
             raise self.retry(exc=exc, countdown=60)
+
+    finally:
+        # Always cleanup temporary files, regardless of success or failure
+        try:
+            downloader.cleanup(video_id)
+            logger.info("temp_cleanup", video_id=video_id, status="success")
+        except Exception as cleanup_exc:
+            logger.warning("temp_cleanup_failed", video_id=video_id, error=str(cleanup_exc))
 
         # If all retries exhausted, return failure
         logger.error("task_failed_all_retries", video_id=video_id, max_retries=self.max_retries)

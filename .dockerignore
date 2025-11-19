@@ -1,0 +1,48 @@
+# Git
+.git
+.gitignore
+
+# Environment
+.env
+.env.*
+google-credentials.json
+
+# Documentation
+*.md
+README*
+LICENSE
+
+# Local development
+temp/
+output/
+docker-compose.yml
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test files
+test_*.py
+*_test.py
+tests/
+
+# Local scripts
+list_elevenlabs_voices.py
