@@ -7,7 +7,8 @@ celery==5.3.4
 redis==5.0.1
 
 # OpenAI API (for AI-powered translation)
-openai==1.30.1  # Stable version compatible with httpx
+openai==0.28.1  # Last stable v0.x version before v1.0 rewrite
+httpx==0.24.1  # Pin httpx for compatibility
 
 # ElevenLabs API (for Georgian TTS)
 elevenlabs==2.23.0

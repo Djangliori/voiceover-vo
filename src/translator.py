@@ -4,17 +4,17 @@ Translates text to Georgian using OpenAI GPT-4 for natural, context-aware transl
 """
 
 import os
-from openai import OpenAI
+import openai
 
 
 class Translator:
     def __init__(self):
-        """Initialize OpenAI client for AI-powered translation"""
+        """Initialize OpenAI for AI-powered translation"""
         api_key = os.getenv('OPENAI_API_KEY')
         if not api_key:
             raise ValueError("OPENAI_API_KEY not found in environment variables")
 
-        self.client = OpenAI(api_key=api_key)
+        openai.api_key = api_key
         self.target_language = 'Georgian'
 
     def translate_segments(self, segments, progress_callback=None):
@@ -39,7 +39,7 @@ class Translator:
 
         # Use GPT-4 for high-quality translation
         try:
-            response = self.client.chat.completions.create(
+            response = openai.ChatCompletion.create(
                 model="gpt-4o",  # Latest GPT-4 model
                 messages=[
                     {
@@ -64,7 +64,7 @@ Do not add any explanations, just provide the translations."""
             )
 
             # Parse the response
-            translated_full = response.choices[0].message.content
+            translated_full = response['choices'][0]['message']['content']
 
             # Split back into segments
             translated_lines = translated_full.strip().split('\n\n')
@@ -123,7 +123,7 @@ Do not add any explanations, just provide the translations."""
             Translated text
         """
         try:
-            response = self.client.chat.completions.create(
+            response = openai.ChatCompletion.create(
                 model="gpt-4o",
                 messages=[
                     {
@@ -141,7 +141,7 @@ Only respond with the translation, no explanations."""
                 temperature=0.3,
             )
 
-            return response.choices[0].message.content.strip()
+            return response['choices'][0]['message']['content'].strip()
 
         except Exception as e:
             # Ultimate fallback: return original text with error marker
