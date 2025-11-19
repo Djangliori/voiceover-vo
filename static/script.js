@@ -77,13 +77,12 @@ function extractVideoId(url) {
     return null;
 }
 
-// Check URL parameters for auto-processing
+// Check URL parameters for auto-filling (but not auto-starting)
 window.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams(window.location.search);
     const videoId = params.get('v');
-    const autostart = params.get('autostart');
 
-    if (videoId && autostart === '1') {
+    if (videoId) {
         // Auto-fill input with YouTube URL
         const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
         urlInput.value = youtubeUrl;
@@ -91,12 +90,9 @@ window.addEventListener('DOMContentLoaded', () => {
         // Show video preview immediately
         updateVideoPreview();
 
-        console.log('Auto-processing video:', videoId);
+        console.log('Video loaded:', videoId, '- Ready to translate');
 
-        // Auto-start processing after delay to show the video preview
-        setTimeout(() => {
-            processVideo();
-        }, 1500);  // 1.5s delay to show video preview before processing
+        // Don't auto-start - let user click the button when ready
     }
 });
 

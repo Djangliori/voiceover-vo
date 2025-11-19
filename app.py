@@ -257,8 +257,8 @@ def watch():
         return render_template('player.html', video=video.to_dict())
 
     # For processing/new/failed videos, redirect to main page with video ID
-    # Main page will handle auto-processing
-    return redirect(url_for('index', v=video_id, autostart='1'))
+    # Main page will show the video preview and wait for user to click translate
+    return redirect(url_for('index', v=video_id))
 
 
 @app.route('/shorts/<video_id>')
