@@ -373,7 +373,7 @@ def get_status(video_id):
             if video.processing_status == 'completed':
                 return jsonify({
                     'complete': True,
-                    'status': 'Processing complete!',
+                    'status': video.status_message or 'Processing complete!',
                     'progress': 100,
                     'video_id': video_id,
                     'r2_url': video.r2_url,
@@ -384,7 +384,15 @@ def get_status(video_id):
                     'complete': False,
                     'status': f"Error: {video.error_message}",
                     'error': video.error_message,
-                    'progress': 0
+                    'progress': video.progress or 0
+                })
+            elif video.processing_status == 'processing':
+                # Return live progress updates!
+                return jsonify({
+                    'complete': False,
+                    'status': video.status_message or 'Processing...',
+                    'progress': video.progress or 0,
+                    'video_id': video_id
                 })
 
         # If database doesn't have completed/failed status, check in-memory status
@@ -434,6 +442,37 @@ def download_file(filename):
         return send_file(file_path, as_attachment=True)
     else:
         return jsonify({'error': 'File not found'}), 404
+
+
+@app.route('/debug/<video_id>')
+def debug_video(video_id):
+    """Debug endpoint to see detailed processing status"""
+    try:
+        video_id = validate_video_id(video_id)
+        video = db.get_video_by_id(video_id)
+
+        if not video:
+            return jsonify({'error': 'Video not found'}), 404
+
+        # Get detailed info
+        debug_info = {
+            'video_id': video_id,
+            'database_record': video.to_dict(),
+            'celery_mode': USE_CELERY,
+            'timestamp': datetime.now().isoformat()
+        }
+
+        # If threading mode, include in-memory status
+        if not USE_CELERY and video_id in processing_status:
+            debug_info['threading_status'] = processing_status[video_id]
+
+        return jsonify(debug_info)
+
+    except ValidationError as ve:
+        return jsonify({'error': ve.message}), ve.status_code
+    except Exception as e:
+        logger.error("debug_endpoint_error", video_id=video_id, error=str(e), exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':

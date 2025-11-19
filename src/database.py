@@ -23,6 +23,8 @@ class Video(Base):
     r2_url = Column(String(500))  # Cloudflare R2 storage URL
     duration = Column(Integer)  # Duration in seconds
     processing_status = Column(String(50), default='processing')  # processing, completed, failed
+    progress = Column(Integer, default=0)  # Progress percentage (0-100)
+    status_message = Column(String(500))  # Current processing step message
     error_message = Column(String(1000))
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
@@ -38,6 +40,8 @@ class Video(Base):
             'r2_url': self.r2_url,
             'duration': self.duration,
             'processing_status': self.processing_status,
+            'progress': self.progress,
+            'status_message': self.status_message,
             'error_message': self.error_message,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'completed_at': self.completed_at.isoformat() if self.completed_at else None,

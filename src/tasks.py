@@ -62,7 +62,8 @@ def process_video_task(self, video_id, youtube_url):
     """
 
     def update_progress(message, progress=None):
-        """Update task progress"""
+        """Update task progress - now updates database too!"""
+        # Update Celery state
         self.update_state(
             state='PROGRESS',
             meta={
@@ -71,6 +72,21 @@ def process_video_task(self, video_id, youtube_url):
                 'video_id': video_id
             }
         )
+
+        # IMPORTANT: Also update database so frontend can see progress
+        try:
+            session = self.db.get_session()
+            video = session.query(self.db.Video).filter_by(video_id=video_id).first()
+            if video:
+                video.processing_status = 'processing'
+                video.progress = progress or 0
+                video.status_message = message
+                session.commit()
+            self.db.close_session(session)
+        except Exception as db_error:
+            logger.warning("progress_db_update_failed", video_id=video_id, error=str(db_error))
+
+        # Log for debugging
         logger.info("task_progress", video_id=video_id, status=message, progress=progress or 0)
 
     try:
