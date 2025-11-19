@@ -36,11 +36,18 @@ if os.path.exists(google_creds_path):
 from src.database import Database
 from src.storage import R2Storage
 
-# Try to import Celery tasks, fall back to threading if Redis unavailable
+# Try to import Celery tasks and check if Redis is available
 try:
     from src.tasks import process_video_task
+    import redis
+
+    # Try to connect to Redis to verify it's actually available
+    redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+    r = redis.from_url(redis_url, socket_connect_timeout=1)
+    r.ping()
+
     USE_CELERY = True
-    logger.info("celery_available", status="using celery for task processing")
+    logger.info("celery_available", status="using celery for task processing", redis_url=redis_url)
 except Exception as e:
     USE_CELERY = False
     logger.warning("celery_unavailable", error=str(e), fallback="threading")
