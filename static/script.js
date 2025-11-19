@@ -17,6 +17,8 @@ const errorMessage = document.getElementById('error-message');
 const downloadBtn = document.getElementById('download-btn');
 const newVideoBtn = document.getElementById('new-video-btn');
 const retryBtn = document.getElementById('retry-btn');
+const videoPreview = document.getElementById('video-preview');
+const youtubeEmbed = document.getElementById('youtube-embed');
 
 // Event Listeners
 processBtn.addEventListener('click', processVideo);
@@ -29,6 +31,52 @@ urlInput.addEventListener('keypress', (e) => {
     }
 });
 
+// Update video preview when URL changes
+urlInput.addEventListener('input', () => {
+    updateVideoPreview();
+});
+
+urlInput.addEventListener('blur', () => {
+    updateVideoPreview();
+});
+
+// Update video preview
+function updateVideoPreview() {
+    const url = urlInput.value.trim();
+
+    if (!url) {
+        videoPreview.classList.add('hidden');
+        return;
+    }
+
+    // Extract video ID from URL
+    const videoId = extractVideoId(url);
+
+    if (videoId) {
+        // Show embed
+        youtubeEmbed.src = `https://www.youtube.com/embed/${videoId}`;
+        videoPreview.classList.remove('hidden');
+    } else {
+        videoPreview.classList.add('hidden');
+    }
+}
+
+// Extract video ID from YouTube URL
+function extractVideoId(url) {
+    const patterns = [
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
+        /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
+        /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
+    ];
+
+    for (const pattern of patterns) {
+        const match = url.match(pattern);
+        if (match) return match[1];
+    }
+
+    return null;
+}
+
 // Check URL parameters for auto-processing
 window.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams(window.location.search);
@@ -40,10 +88,15 @@ window.addEventListener('DOMContentLoaded', () => {
         const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
         urlInput.value = youtubeUrl;
 
-        // Auto-start processing
+        // Show video preview immediately
+        updateVideoPreview();
+
+        console.log('Auto-processing video:', videoId);
+
+        // Auto-start processing after delay to show the video preview
         setTimeout(() => {
             processVideo();
-        }, 100);
+        }, 1500);  // 1.5s delay to show video preview before processing
     }
 });
 
