@@ -4,8 +4,8 @@ Generates Georgian voiceover using ElevenLabs API
 """
 
 import os
+import ffmpeg
 from elevenlabs import ElevenLabs
-from pydub import AudioSegment
 from pathlib import Path
 
 
@@ -61,8 +61,14 @@ class TextToSpeech:
             wav_filename = f"segment_{i:04d}.wav"
             wav_path = temp_path / wav_filename
 
-            audio = AudioSegment.from_mp3(audio_path)
-            audio.export(wav_path, format='wav')
+            # Use ffmpeg-python for conversion
+            stream = ffmpeg.input(str(audio_path))
+            stream = ffmpeg.output(stream, str(wav_path), acodec='pcm_s16le', ar='44100')
+            ffmpeg.run(stream, overwrite_output=True, quiet=True)
+
+            # Get audio duration using ffmpeg probe
+            probe = ffmpeg.probe(str(wav_path))
+            duration = float(probe['streams'][0]['duration'])
 
             # Remove the MP3 file
             audio_path.unlink()
@@ -72,7 +78,7 @@ class TextToSpeech:
             voiceover_segment['audio_path'] = str(wav_path)
 
             # Calculate audio duration
-            voiceover_segment['audio_duration'] = len(audio) / 1000.0  # Convert ms to seconds
+            voiceover_segment['audio_duration'] = duration
 
             voiceover_segments.append(voiceover_segment)
 

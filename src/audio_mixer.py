@@ -1,15 +1,17 @@
 """
 Audio Mixing Module
 Mixes original audio with Georgian voiceover, lowering original volume during speech
+Uses ffmpeg-python for efficient, Python-version-independent audio processing
 """
 
 import os
-from pydub import AudioSegment
+import ffmpeg
 from pathlib import Path
+import subprocess
 
 
 class AudioMixer:
-    def __init__(self, original_volume=0.3, voiceover_volume=1.0):
+    def __init__(self, original_volume=0.05, voiceover_volume=1.0):
         """
         Initialize audio mixer
 
@@ -22,7 +24,7 @@ class AudioMixer:
 
     def mix_audio(self, original_audio_path, voiceover_segments, output_path, progress_callback=None):
         """
-        Mix original audio with Georgian voiceover
+        Mix original audio with Georgian voiceover using ffmpeg
 
         Args:
             original_audio_path: Path to original audio WAV file
@@ -36,46 +38,77 @@ class AudioMixer:
         if progress_callback:
             progress_callback("Loading original audio...")
 
-        # Load original audio
-        original_audio = AudioSegment.from_wav(original_audio_path)
-        original_duration_ms = len(original_audio)
+        # Get original audio duration
+        probe = ffmpeg.probe(original_audio_path)
+        duration = float(probe['streams'][0]['duration'])
 
         if progress_callback:
             progress_callback("Lowering original audio volume...")
 
-        # Lower the volume of original audio
-        original_audio_lowered = original_audio + (20 * (self.original_volume - 1))  # dB adjustment
+        # Start with original audio with lowered volume
+        original = ffmpeg.input(original_audio_path)
+        # Apply volume filter to lower original audio
+        original_lowered = original.audio.filter('volume', self.original_volume)
 
-        # Start with the lowered original audio
-        mixed_audio = original_audio_lowered
+        if not voiceover_segments:
+            # No voiceover, just export lowered original
+            if progress_callback:
+                progress_callback("Exporting audio...")
+
+            output = ffmpeg.output(original_lowered, output_path, acodec='pcm_s16le', ar='44100')
+            ffmpeg.run(output, overwrite_output=True, quiet=True)
+
+            if progress_callback:
+                progress_callback("Audio mixing complete!")
+            return output_path
 
         if progress_callback:
             progress_callback(f"Mixing {len(voiceover_segments)} voiceover segments...")
 
-        # Overlay each voiceover segment at its timestamp
-        for i, segment in enumerate(voiceover_segments):
-            start_time_ms = int(segment['start'] * 1000)
+        # Create temp file for intermediate mixing
+        temp_dir = Path(output_path).parent
+        temp_mixed = temp_dir / f"temp_mixed_{os.getpid()}.wav"
 
-            # Load voiceover audio
-            voiceover_audio = AudioSegment.from_wav(segment['audio_path'])
+        try:
+            # Build complex filter for overlaying all voiceover segments
+            # Strategy: overlay segments one by one using amerge and amix
 
-            # Adjust voiceover volume
-            if self.voiceover_volume != 1.0:
-                voiceover_audio = voiceover_audio + (20 * (self.voiceover_volume - 1))
+            current_audio = original_lowered
 
-            # Check if we're within bounds
-            if start_time_ms < original_duration_ms:
-                # Overlay voiceover on top of original audio
-                mixed_audio = mixed_audio.overlay(voiceover_audio, position=start_time_ms)
+            for i, segment in enumerate(voiceover_segments):
+                start_time = segment['start']
+                voiceover_path = segment['audio_path']
 
-            if progress_callback and (i + 1) % 10 == 0:
-                progress_callback(f"Mixed {i + 1}/{len(voiceover_segments)} segments")
+                # Load voiceover segment
+                voiceover = ffmpeg.input(voiceover_path)
 
-        if progress_callback:
-            progress_callback("Exporting mixed audio...")
+                # Apply volume to voiceover if needed
+                if self.voiceover_volume != 1.0:
+                    voiceover_audio = voiceover.audio.filter('volume', self.voiceover_volume)
+                else:
+                    voiceover_audio = voiceover.audio
 
-        # Export mixed audio
-        mixed_audio.export(output_path, format='wav')
+                # Add delay to voiceover to position it at correct timestamp
+                voiceover_delayed = voiceover_audio.filter('adelay', f'{int(start_time * 1000)}|{int(start_time * 1000)}')
+
+                # Mix current audio with this voiceover segment
+                # Use amix to overlay the voiceover on top of current audio
+                current_audio = ffmpeg.filter([current_audio, voiceover_delayed], 'amix', inputs=2, duration='longest')
+
+                if progress_callback and (i + 1) % 10 == 0:
+                    progress_callback(f"Mixed {i + 1}/{len(voiceover_segments)} segments")
+
+            if progress_callback:
+                progress_callback("Exporting mixed audio...")
+
+            # Output final mixed audio
+            output = ffmpeg.output(current_audio, output_path, acodec='pcm_s16le', ar='44100')
+            ffmpeg.run(output, overwrite_output=True, quiet=True)
+
+        finally:
+            # Clean up temp file if it exists
+            if temp_mixed.exists():
+                temp_mixed.unlink()
 
         if progress_callback:
             progress_callback("Audio mixing complete!")
@@ -103,27 +136,39 @@ class AudioMixer:
 
         # Find total duration needed
         last_segment = max(voiceover_segments, key=lambda x: x['end'])
-        total_duration_ms = int(last_segment['end'] * 1000) + 5000  # Add 5 seconds padding
+        total_duration = last_segment['end'] + 5.0  # Add 5 seconds padding
 
-        # Create silent audio
-        silent_audio = AudioSegment.silent(duration=total_duration_ms)
+        # Create silent audio as base
+        silent = ffmpeg.input(f'anullsrc=r=44100:cl=stereo', f='lavfi', t=total_duration)
+
+        current_audio = silent
 
         # Overlay each voiceover segment
         for i, segment in enumerate(voiceover_segments):
-            start_time_ms = int(segment['start'] * 1000)
-            voiceover_audio = AudioSegment.from_wav(segment['audio_path'])
+            start_time = segment['start']
+            voiceover_path = segment['audio_path']
 
-            # Adjust volume
+            # Load voiceover segment
+            voiceover = ffmpeg.input(voiceover_path)
+
+            # Apply volume if needed
             if self.voiceover_volume != 1.0:
-                voiceover_audio = voiceover_audio + (20 * (self.voiceover_volume - 1))
+                voiceover_audio = voiceover.audio.filter('volume', self.voiceover_volume)
+            else:
+                voiceover_audio = voiceover.audio
 
-            silent_audio = silent_audio.overlay(voiceover_audio, position=start_time_ms)
+            # Add delay to position at correct timestamp
+            voiceover_delayed = voiceover_audio.filter('adelay', f'{int(start_time * 1000)}|{int(start_time * 1000)}')
+
+            # Mix with current audio
+            current_audio = ffmpeg.filter([current_audio, voiceover_delayed], 'amix', inputs=2, duration='longest')
 
             if progress_callback and (i + 1) % 10 == 0:
                 progress_callback(f"Added {i + 1}/{len(voiceover_segments)} segments")
 
-        # Export
-        silent_audio.export(output_path, format='wav')
+        # Export final audio
+        output = ffmpeg.output(current_audio, output_path, acodec='pcm_s16le', ar='44100')
+        ffmpeg.run(output, overwrite_output=True, quiet=True)
 
         if progress_callback:
             progress_callback("Voiceover-only audio complete!")
