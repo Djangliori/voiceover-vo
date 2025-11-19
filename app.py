@@ -241,12 +241,12 @@ def watch():
     """
     YouTube-style watch page
     Handles URLs like: geyoutube.com/watch?v=VIDEO_ID
+    Redirects to main page with unified interface
     """
     video_id = request.args.get('v')
 
     if not video_id:
-        return render_template('error.html',
-                             error="No video ID provided"), 400
+        return redirect(url_for('index'))
 
     # Check if video already processed
     video = db.get_video_by_id(video_id)
@@ -256,49 +256,9 @@ def watch():
         db.increment_view_count(video_id)
         return render_template('player.html', video=video.to_dict())
 
-    elif video and video.processing_status == 'processing':
-        # Video currently processing, show progress
-        return render_template('processing.html',
-                             video_id=video_id,
-                             job_id=video_id)
-
-    elif video and video.processing_status == 'failed':
-        # Previous attempt failed, allow retry
-        return render_template('error.html',
-                             error=f"Previous processing failed: {video.error_message}",
-                             video_id=video_id,
-                             allow_retry=True)
-
-    else:
-        # New video, start processing
-        youtube_url = construct_youtube_url(video_id)
-
-        # Create database entry
-        try:
-            video = db.create_video(video_id, "Processing...", youtube_url)
-        except Exception as e:
-            # Video might already exist, get it
-            video = db.get_video_by_id(video_id)
-
-        # Start background processing (Celery or threading)
-        if USE_CELERY:
-            task = process_video_task.delay(video_id, youtube_url)
-            task_id_map[video_id] = task.id
-            job_id = task.id
-        else:
-            # Use threading fallback
-            thread = threading.Thread(
-                target=process_video_threading,
-                args=(video_id, youtube_url)
-            )
-            thread.daemon = True
-            thread.start()
-            job_id = video_id
-
-        # Show processing page
-        return render_template('processing.html',
-                             video_id=video_id,
-                             job_id=job_id)
+    # For processing/new/failed videos, redirect to main page with video ID
+    # Main page will handle auto-processing
+    return redirect(url_for('index', v=video_id, autostart='1'))
 
 
 @app.route('/shorts/<video_id>')
@@ -357,20 +317,25 @@ def process_video():
         if USE_CELERY:
             task = process_video_task.delay(video_id, youtube_url)
             task_id_map[video_id] = task.id
-            task_id = task.id
         else:
+            # Initialize processing status for threading mode
+            processing_status[video_id] = {
+                'status': 'Starting...',
+                'progress': 0,
+                'video_id': video_id
+            }
             thread = threading.Thread(
                 target=process_video_threading,
                 args=(video_id, youtube_url)
             )
             thread.daemon = True
             thread.start()
-            task_id = None
 
+        # Always return video_id as job_id for unified interface
         return jsonify({
             'success': True,
             'video_id': video_id,
-            'task_id': task_id
+            'job_id': video_id  # Use video_id for status polling
         })
 
     except Exception as e:

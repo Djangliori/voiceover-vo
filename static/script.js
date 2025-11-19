@@ -29,6 +29,24 @@ urlInput.addEventListener('keypress', (e) => {
     }
 });
 
+// Check URL parameters for auto-processing
+window.addEventListener('DOMContentLoaded', () => {
+    const params = new URLSearchParams(window.location.search);
+    const videoId = params.get('v');
+    const autostart = params.get('autostart');
+
+    if (videoId && autostart === '1') {
+        // Auto-fill input with YouTube URL
+        const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+        urlInput.value = youtubeUrl;
+
+        // Auto-start processing
+        setTimeout(() => {
+            processVideo();
+        }, 100);
+    }
+});
+
 // Process Video
 async function processVideo() {
     const url = urlInput.value.trim();
@@ -123,11 +141,27 @@ function showResult(data) {
     resultSection.classList.remove('hidden');
     processBtn.disabled = false;
 
-    videoTitle.textContent = `"${data.title}"`;
+    videoTitle.textContent = data.title ? `"${data.title}"` : 'Video processing complete!';
 
+    // Handle download/view button
     downloadBtn.onclick = () => {
-        window.location.href = `/download/${data.output_file}`;
+        if (data.r2_url) {
+            // If R2 URL available, open in new tab or download
+            if (data.r2_url.startsWith('http')) {
+                window.open(data.r2_url, '_blank');
+            } else {
+                window.location.href = data.r2_url;
+            }
+        } else if (data.output_file) {
+            window.location.href = `/download/${data.output_file}`;
+        } else {
+            // Fallback: reload to watch page
+            window.location.href = `/watch?v=${data.video_id}`;
+        }
     };
+
+    // Update button text
+    downloadBtn.querySelector('.btn-text').textContent = data.r2_url && data.r2_url.startsWith('http') ? 'Watch Video' : 'Download Video';
 }
 
 // Show error
