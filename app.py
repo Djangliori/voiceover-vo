@@ -12,10 +12,10 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from pathlib import Path
 import traceback
-import threading
 import uuid
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
+from celery.result import AsyncResult
 
 # Load environment variables
 load_dotenv()
@@ -28,15 +28,10 @@ google_creds_path = os.path.join(
 if os.path.exists(google_creds_path):
     os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = google_creds_path
 
-# Import processing modules
-from src.downloader import VideoDownloader
-from src.transcriber import Transcriber
-from src.translator import Translator
-from src.tts import TextToSpeech
-from src.audio_mixer import AudioMixer
-from src.video_processor import VideoProcessor
+# Import database and tasks
 from src.database import Database
 from src.storage import R2Storage
+from src.tasks import process_video_task
 
 app = Flask(__name__)
 CORS(app)
@@ -56,8 +51,8 @@ except Exception as e:
     storage = None
     use_r2 = False
 
-# Store processing status
-processing_status = {}
+# Store Celery task IDs mapped to video IDs
+task_id_map = {}  # video_id -> celery_task_id
 
 
 def extract_video_id(url_or_path):
@@ -142,18 +137,14 @@ def watch():
             # Video might already exist, get it
             video = db.get_video_by_id(video_id)
 
-        # Start background processing
-        thread = threading.Thread(
-            target=process_video_background,
-            args=(video_id, youtube_url)
-        )
-        thread.daemon = True
-        thread.start()
+        # Start Celery background task
+        task = process_video_task.delay(video_id, youtube_url)
+        task_id_map[video_id] = task.id
 
         # Show processing page
         return render_template('processing.html',
                              video_id=video_id,
-                             job_id=video_id)
+                             job_id=task.id)
 
 
 @app.route('/shorts/<video_id>')
@@ -177,126 +168,6 @@ def popular():
     return render_template('library.html',
                          videos=[v.to_dict() for v in popular_videos],
                          title="Popular Videos")
-
-
-def process_video_background(video_id, youtube_url):
-    """Background processing function"""
-    try:
-        def update_status(message, progress=None):
-            processing_status[video_id] = {
-                'status': message,
-                'progress': progress or 0,
-                'video_id': video_id
-            }
-            print(f"[{video_id}] {message}")
-
-        # Initialize components
-        downloader = VideoDownloader(temp_dir=app.config['TEMP_DIR'])
-        transcriber = Transcriber(use_google_cloud=False)
-        translator = Translator()
-        tts = TextToSpeech()
-        mixer = AudioMixer(
-            original_volume=float(os.getenv('ORIGINAL_AUDIO_VOLUME', 0.05)),
-            voiceover_volume=float(os.getenv('VOICEOVER_VOLUME', 1.0))
-        )
-        processor = VideoProcessor(output_dir=app.config['OUTPUT_DIR'])
-
-        # Step 1: Download video
-        update_status("Downloading video from YouTube...", 10)
-        video_info = downloader.download_video(youtube_url)
-        video_title = video_info['title']
-
-        # Update database with title
-        db.update_video_status(video_id, 'processing')
-        session = db.get_session()
-        video = session.query(db.Video).filter_by(video_id=video_id).first()
-        if video:
-            video.title = video_title
-            session.commit()
-        db.close_session(session)
-
-        # Step 2: Transcribe audio
-        update_status("Transcribing audio...", 25)
-        segments = transcriber.transcribe(
-            video_info['audio_path'],
-            progress_callback=lambda msg: update_status(f"Transcribing: {msg}", 30)
-        )
-        segments = transcriber.merge_short_segments(segments)
-        update_status(f"Transcription complete: {len(segments)} segments", 40)
-
-        # Step 3: Translate to Georgian
-        update_status("Translating to Georgian...", 45)
-        translated_segments = translator.translate_segments(
-            segments,
-            progress_callback=lambda msg: update_status(f"Translation: {msg}", 50)
-        )
-        update_status("Translation complete", 55)
-
-        # Step 4: Generate Georgian voiceover
-        update_status("Generating Georgian voiceover...", 60)
-        voiceover_segments = tts.generate_voiceover(
-            translated_segments,
-            temp_dir=app.config['TEMP_DIR'],
-            progress_callback=lambda msg: update_status(f"TTS: {msg}", 70)
-        )
-        update_status("Voiceover generation complete", 75)
-
-        # Step 5: Mix audio
-        update_status("Mixing audio tracks...", 80)
-        mixed_audio_path = os.path.join(app.config['TEMP_DIR'], f"{video_id}_mixed.wav")
-        mixer.mix_audio(
-            video_info['audio_path'],
-            voiceover_segments,
-            mixed_audio_path,
-            progress_callback=lambda msg: update_status(f"Mixing: {msg}", 85)
-        )
-        update_status("Audio mixing complete", 90)
-
-        # Step 6: Combine with video
-        update_status("Creating final video...", 92)
-        output_filename = f"{video_id}_georgian.mp4"
-        final_video_path = processor.combine_video_audio(
-            video_info['video_path'],
-            mixed_audio_path,
-            output_filename,
-            progress_callback=lambda msg: update_status(f"Video: {msg}", 95)
-        )
-
-        # Step 7: Upload to R2 if configured
-        r2_url = None
-        if use_r2 and storage:
-            update_status("Uploading to cloud storage...", 97)
-            r2_url = storage.upload_video(
-                final_video_path,
-                video_id,
-                progress_callback=lambda msg: update_status(msg, 98)
-            )
-            update_status("Upload complete!", 99)
-        else:
-            # Use local file path
-            r2_url = f"/download/{output_filename}"
-
-        # Update database
-        update_status("Processing complete!", 100)
-        db.update_video_status(video_id, 'completed', r2_url=r2_url)
-
-        processing_status[video_id]['complete'] = True
-        processing_status[video_id]['r2_url'] = r2_url
-        processing_status[video_id]['title'] = video_title
-
-        # Cleanup temporary files
-        downloader.cleanup(video_id)
-
-    except Exception as e:
-        error_msg = str(e)
-        traceback.print_exc()
-        processing_status[video_id] = {
-            'status': f"Error: {error_msg}",
-            'error': error_msg,
-            'complete': False,
-            'progress': 0
-        }
-        db.update_video_status(video_id, 'failed', error_message=error_msg)
 
 
 @app.route('/process', methods=['POST'])
@@ -328,17 +199,14 @@ def process_video():
         if not video:
             video = db.create_video(video_id, "Processing...", youtube_url)
 
-        # Start processing in background
-        thread = threading.Thread(
-            target=process_video_background,
-            args=(video_id, youtube_url)
-        )
-        thread.daemon = True
-        thread.start()
+        # Start Celery task
+        task = process_video_task.delay(video_id, youtube_url)
+        task_id_map[video_id] = task.id
 
         return jsonify({
             'success': True,
-            'video_id': video_id
+            'video_id': video_id,
+            'task_id': task.id
         })
 
     except Exception as e:
@@ -349,12 +217,8 @@ def process_video():
 
 @app.route('/status/<video_id>')
 def get_status(video_id):
-    """Get processing status"""
-    # Check in-memory status first
-    if video_id in processing_status:
-        return jsonify(processing_status[video_id])
-
-    # Check database
+    """Get processing status from Celery task"""
+    # Check database first
     video = db.get_video_by_id(video_id)
     if video:
         if video.processing_status == 'completed':
@@ -371,6 +235,37 @@ def get_status(video_id):
                 'complete': False,
                 'status': f"Error: {video.error_message}",
                 'error': video.error_message,
+                'progress': 0
+            })
+
+    # Check Celery task status
+    task_id = task_id_map.get(video_id)
+    if task_id:
+        task = AsyncResult(task_id)
+
+        if task.state == 'PENDING':
+            return jsonify({
+                'complete': False,
+                'status': 'Task pending...',
+                'progress': 0,
+                'video_id': video_id
+            })
+        elif task.state == 'PROGRESS':
+            return jsonify({
+                'complete': False,
+                **task.info,  # Contains status, progress, video_id
+            })
+        elif task.state == 'SUCCESS':
+            result = task.result
+            return jsonify({
+                'complete': True,
+                **result
+            })
+        elif task.state == 'FAILURE':
+            return jsonify({
+                'complete': False,
+                'status': f"Error: {str(task.info)}",
+                'error': str(task.info),
                 'progress': 0
             })
         else:
