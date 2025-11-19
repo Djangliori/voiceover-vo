@@ -7,7 +7,7 @@ celery==5.3.4
 redis==5.0.1
 
 # OpenAI API (for AI-powered translation)
-openai>=1.0.0
+openai==1.54.4
 
 # ElevenLabs API (for Georgian TTS)
 elevenlabs==2.23.0

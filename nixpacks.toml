@@ -1,3 +1,7 @@
+# Explicitly set provider for faster detection
+[providers]
+python = "3.12"
+
 [phases.setup]
 nixPkgs = ["python312", "ffmpeg"]
 
@@ -6,6 +10,9 @@ nixPkgs = ["python312", "ffmpeg"]
 cmds = [
   "mkdir -p /root/.cache/pip",
   "pip install --upgrade pip setuptools wheel",
+  # Install heavy packages first to maximize cache benefits
+  "pip install --no-deps openai-whisper==20231117 boto3==1.34.0",
+  # Install remaining packages
   "pip install -r requirements.txt"
 ]
 
