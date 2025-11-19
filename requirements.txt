@@ -16,6 +16,7 @@ yt-dlp==2024.10.7
 
 # Audio/Video Processing
 pydub==0.25.1
+pyaudioop==0.1.0  # Replacement for removed audioop in Python 3.13+
 moviepy==1.0.3
 
 # Speech Recognition (local)
