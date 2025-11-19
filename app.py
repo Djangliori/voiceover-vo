@@ -387,48 +387,18 @@ def get_status(video_id):
                     'progress': 0
                 })
 
-        # Check status based on mode
-        if USE_CELERY:
-            # Check Celery task status
-            task_id = task_id_map.get(video_id)
-            if task_id:
-                task = AsyncResult(task_id)
+        # If database doesn't have completed/failed status, check in-memory status
+        # For Celery mode, the task updates the database directly
+        # For threading mode, check the in-memory dict
+        if not USE_CELERY and video_id in processing_status:
+            return jsonify(processing_status[video_id])
 
-                if task.state == 'PENDING':
-                    return jsonify({
-                        'complete': False,
-                        'status': 'Task pending...',
-                        'progress': 0,
-                        'video_id': video_id
-                    })
-                elif task.state == 'PROGRESS':
-                    return jsonify({
-                        'complete': False,
-                        **task.info,
-                    })
-                elif task.state == 'SUCCESS':
-                    result = task.result
-                    return jsonify({
-                        'complete': True,
-                        **result
-                    })
-                elif task.state == 'FAILURE':
-                    return jsonify({
-                        'complete': False,
-                        'status': f"Error: {str(task.info)}",
-                        'error': str(task.info),
-                        'progress': 0
-                    })
-        else:
-            # Check threading status
-            if video_id in processing_status:
-                return jsonify(processing_status[video_id])
-
-        # Default response
+        # Default response - video is being processed
         return jsonify({
             'complete': False,
             'status': 'Processing...',
-            'progress': 0
+            'progress': 0,
+            'video_id': video_id
         })
 
     except Exception as e:
