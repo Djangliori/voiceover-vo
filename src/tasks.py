@@ -89,6 +89,14 @@ def process_video_task(self, video_id, youtube_url):
         # Log for debugging
         logger.info("task_progress", video_id=video_id, status=message, progress=progress or 0)
 
+    def calc_sub_progress(start, end, current, total):
+        """Calculate progress within a range"""
+        if total == 0:
+            return start
+        range_size = end - start
+        sub_progress = (current / total) * range_size
+        return int(start + sub_progress)
+
     try:
         # Configuration
         output_dir = os.getenv('OUTPUT_DIR', 'output')
@@ -110,10 +118,14 @@ def process_video_task(self, video_id, youtube_url):
         )
         processor = VideoProcessor(output_dir=output_dir)
 
-        # Step 1: Download video
-        update_progress("Downloading video from YouTube...", 10)
-        video_info = downloader.download_video(youtube_url)
+        # Step 1: Download video (0-15%)
+        update_progress("Starting download...", 1)
+        video_info = downloader.download_video(
+            youtube_url,
+            progress_callback=lambda msg: update_progress(msg, 10)
+        )
         video_title = video_info['title']
+        update_progress(f"Downloaded: {video_title}", 15)
 
         # Update database with title
         self.db.update_video_status(video_id, 'processing')
@@ -124,57 +136,65 @@ def process_video_task(self, video_id, youtube_url):
             session.commit()
         self.db.close_session(session)
 
-        # Step 2: Transcribe audio
-        update_progress("Transcribing audio...", 25)
+        # Step 2: Transcribe audio (15-35%)
+        update_progress("Extracting audio for transcription...", 16)
         segments = transcriber.transcribe(
             video_info['audio_path'],
-            progress_callback=lambda msg: update_progress(f"Transcribing: {msg}", 30)
+            progress_callback=lambda msg: update_progress(msg, 25)
         )
         segments = transcriber.merge_short_segments(segments)
-        update_progress(f"Transcription complete: {len(segments)} segments", 40)
+        update_progress(f"Transcribed {len(segments)} segments", 35)
 
-        # Step 3: Translate to Georgian
-        update_progress("Translating to Georgian...", 45)
+        # Step 3: Translate to Georgian (35-50%)
+        total_segments = len(segments)
+        def translation_progress(idx, total, text):
+            prog = calc_sub_progress(35, 50, idx, total)
+            update_progress(f"Translating segment {idx}/{total}: {text[:30]}...", prog)
+
         translated_segments = translator.translate_segments(
             segments,
-            progress_callback=lambda msg: update_progress(f"Translation: {msg}", 50)
+            progress_callback=translation_progress
         )
-        update_progress("Translation complete", 55)
+        update_progress(f"Translated {len(translated_segments)} segments", 50)
 
-        # Step 4: Generate Georgian voiceover
-        update_progress("Generating Georgian voiceover...", 60)
+        # Step 4: Generate Georgian voiceover (50-70%)
+        def tts_progress(idx, total, text):
+            prog = calc_sub_progress(50, 70, idx, total)
+            update_progress(f"Generating voice {idx}/{total}: {text[:30]}...", prog)
+
         voiceover_segments = tts.generate_voiceover(
             translated_segments,
             temp_dir=temp_dir,
-            progress_callback=lambda msg: update_progress(f"TTS: {msg}", 70)
+            progress_callback=tts_progress
         )
-        update_progress("Voiceover generation complete", 75)
+        update_progress(f"Generated {len(voiceover_segments)} voiceover clips", 70)
 
-        # Step 5: Mix audio
-        update_progress("Mixing audio tracks...", 80)
+        # Step 5: Mix audio (70-85%)
+        update_progress("Mixing audio tracks...", 72)
         mixed_audio_path = os.path.join(temp_dir, f"{video_id}_mixed.wav")
         mixer.mix_audio(
             video_info['audio_path'],
             voiceover_segments,
             mixed_audio_path,
-            progress_callback=lambda msg: update_progress(f"Mixing: {msg}", 85)
+            progress_callback=lambda msg: update_progress(f"Mixing: {msg}", 80)
         )
-        update_progress("Audio mixing complete", 90)
+        update_progress("Audio mixing complete", 85)
 
-        # Step 6: Combine with video
-        update_progress("Creating final video...", 92)
+        # Step 6: Combine with video (85-95%)
+        update_progress("Encoding final video...", 87)
         output_filename = f"{video_id}_georgian.mp4"
         final_video_path = processor.combine_video_audio(
             video_info['video_path'],
             mixed_audio_path,
             output_filename,
-            progress_callback=lambda msg: update_progress(f"Video: {msg}", 95)
+            progress_callback=lambda msg: update_progress(f"Encoding: {msg}", 92)
         )
+        update_progress("Video encoding complete", 95)
 
-        # Step 7: Upload to R2 if configured
+        # Step 7: Upload to R2 if configured (95-99%)
         r2_url = None
         if use_r2 and self.storage:
-            update_progress("Uploading to cloud storage...", 97)
+            update_progress("Uploading to cloud storage...", 96)
             r2_url = self.storage.upload_video(
                 final_video_path,
                 video_id,
@@ -184,6 +204,7 @@ def process_video_task(self, video_id, youtube_url):
         else:
             # Use local file path
             r2_url = f"/download/{output_filename}"
+            update_progress("Video ready for download", 99)
 
         # Update database
         update_progress("Processing complete!", 100)

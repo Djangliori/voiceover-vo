@@ -28,6 +28,22 @@ class VideoDownloader:
         video_path = self.temp_dir / f"{video_id}.mp4"
         audio_path = self.temp_dir / f"{video_id}_audio.wav"
 
+        # Create progress hook for yt-dlp that reports detailed download progress
+        def ytdlp_progress_hook(d):
+            if progress_callback and d['status'] == 'downloading':
+                try:
+                    downloaded = d.get('downloaded_bytes', 0)
+                    total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
+                    if total > 0:
+                        percent = (downloaded / total) * 100
+                        speed = d.get('speed', 0)
+                        speed_str = f"{speed/1024/1024:.1f} MB/s" if speed else "? MB/s"
+                        progress_callback(f"Downloading... {percent:.1f}% ({downloaded//1024//1024}MB/{total//1024//1024}MB) @ {speed_str}")
+                    else:
+                        progress_callback(f"Downloading... {downloaded//1024//1024}MB")
+                except Exception:
+                    pass
+
         # Download options - use simpler format to avoid fragment issues
         ydl_opts = {
             'format': 'best[ext=mp4]/best',  # Simplified format selector
@@ -41,7 +57,7 @@ class VideoDownloader:
         }
 
         if progress_callback:
-            ydl_opts['progress_hooks'] = [progress_callback]
+            ydl_opts['progress_hooks'] = [ytdlp_progress_hook]
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
