@@ -1,10 +1,9 @@
 """
 Speech-to-Text Transcription Module
-Uses Google Cloud Speech-to-Text or local Whisper for transcription with timestamps
+Uses local Whisper for transcription with timestamps
 """
 
 import os
-from google.cloud import speech
 import whisper
 from pathlib import Path
 import threading
@@ -39,26 +38,26 @@ class WhisperModelSingleton:
 
 
 class Transcriber:
-    def __init__(self, use_google_cloud=True):
+    def __init__(self, use_google_cloud=False):
         """
         Initialize transcriber
 
         Args:
-            use_google_cloud: If True, use Google Cloud Speech-to-Text
-                             If False, use local Whisper model
+            use_google_cloud: Deprecated - only Whisper is supported now
         """
-        self.use_google_cloud = use_google_cloud
-
         if use_google_cloud:
-            self.client = speech.SpeechClient()
-        else:
-            # Use singleton to get cached Whisper model
-            model_size = os.getenv('WHISPER_MODEL', 'base')
-            self.model = WhisperModelSingleton.get_model(model_size)
+            raise NotImplementedError(
+                "Google Cloud Speech-to-Text is no longer supported. "
+                "Install google-cloud-speech if needed."
+            )
+
+        # Use singleton to get cached Whisper model
+        model_size = os.getenv('WHISPER_MODEL', 'base')
+        self.model = WhisperModelSingleton.get_model(model_size)
 
     def transcribe(self, audio_path, progress_callback=None):
         """
-        Transcribe audio file with timestamps
+        Transcribe audio file with timestamps using Whisper
 
         Args:
             audio_path: Path to audio file (WAV format)
@@ -75,10 +74,7 @@ class Transcriber:
                 ...
             ]
         """
-        if self.use_google_cloud:
-            return self._transcribe_google(audio_path, progress_callback)
-        else:
-            return self._transcribe_whisper(audio_path, progress_callback)
+        return self._transcribe_whisper(audio_path, progress_callback)
 
     def _transcribe_google(self, audio_path, progress_callback=None):
         """Transcribe using Google Cloud Speech-to-Text"""
