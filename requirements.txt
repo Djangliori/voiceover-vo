@@ -13,8 +13,8 @@ httpx==0.24.1  # Pin httpx for compatibility
 # ElevenLabs API (for Georgian TTS)
 elevenlabs==2.23.0
 
-# YouTube Download
-yt-dlp==2024.10.7
+# YouTube Download - keep updated to bypass YouTube's bot detection
+yt-dlp>=2024.11.18  # Latest version with newest YouTube bypass techniques
 
 # Audio/Video Processing
 ffmpeg-python==0.2.0
