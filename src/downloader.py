@@ -24,9 +24,16 @@ class VideoDownloader:
         Returns:
             dict with video_path, audio_path, title, duration
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info(f"Starting download for URL: {url}")
         video_id = self._extract_video_id(url)
+        logger.info(f"Extracted video ID: {video_id}")
+
         video_path = self.temp_dir / f"{video_id}.mp4"
         audio_path = self.temp_dir / f"{video_id}_audio.wav"
+        logger.info(f"Video path: {video_path}, Audio path: {audio_path}")
 
         # Create progress hook for yt-dlp that reports detailed download progress
         def ytdlp_progress_hook(d):
@@ -63,13 +70,18 @@ class VideoDownloader:
             ydl_opts['progress_hooks'] = [ytdlp_progress_hook]
 
         try:
+            logger.info("Creating YoutubeDL instance with format selector")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                logger.info("Extracting video info...")
                 info = ydl.extract_info(url, download=True)
                 title = info.get('title', 'Unknown')
                 duration = info.get('duration', 0)
+                logger.info(f"Video downloaded successfully: {title} (duration: {duration}s)")
 
             # Extract audio using ffmpeg
+            logger.info("Extracting audio from video...")
             self._extract_audio(video_path, audio_path)
+            logger.info("Audio extraction complete")
 
             return {
                 'video_path': str(video_path),
@@ -80,6 +92,7 @@ class VideoDownloader:
             }
 
         except Exception as e:
+            logger.error(f"Download failed with error: {str(e)}", exc_info=True)
             raise Exception(f"Failed to download video: {str(e)}")
 
     def _extract_video_id(self, url):
@@ -91,7 +104,10 @@ class VideoDownloader:
     def _extract_audio(self, video_path, audio_path):
         """Extract audio from video using ffmpeg"""
         import subprocess
+        import logging
+        logger = logging.getLogger(__name__)
 
+        logger.info(f"Running ffmpeg to extract audio from {video_path}")
         cmd = [
             'ffmpeg',
             '-i', str(video_path),
@@ -103,9 +119,15 @@ class VideoDownloader:
             str(audio_path)
         ]
 
+        logger.info(f"ffmpeg command: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
+
         if result.returncode != 0:
+            logger.error(f"ffmpeg failed with return code {result.returncode}")
+            logger.error(f"ffmpeg stderr: {result.stderr}")
             raise Exception(f"Failed to extract audio: {result.stderr}")
+        else:
+            logger.info(f"Audio extracted successfully to {audio_path}")
 
     def cleanup(self, video_id):
         """Clean up temporary files for a video"""
