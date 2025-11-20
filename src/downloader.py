@@ -44,13 +44,9 @@ class VideoDownloader:
                 except Exception:
                     pass
 
-        # Download options - prefer pre-merged formats (no ffmpeg needed)
+        # Download options - tell yt-dlp where to find ffmpeg
         ydl_opts = {
-            # Priority order:
-            # 1. Best single MP4 file (no merging needed)
-            # 2. Best single file of any format
-            # 3. Best video+audio IF ffmpeg available (fallback)
-            'format': 'best[ext=mp4]/best/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio',
+            'format': 'best[ext=mp4]/best',  # Simplified - works with ffmpeg available
             'outtmpl': str(video_path),
             'quiet': False,
             'no_warnings': False,
@@ -58,9 +54,7 @@ class VideoDownloader:
             'retries': 10,
             'fragment_retries': 10,
             'extractor_retries': 3,
-            # Don't abort on error - try next format if merge fails
-            'ignoreerrors': False,
-            'no_abort': True,  # Continue with next format if current fails
+            'ffmpeg_location': '/usr/bin',  # Help yt-dlp find ffmpeg
         }
 
         if progress_callback:
