@@ -64,6 +64,9 @@ class VideoDownloader:
             'fragment_retries': 10,
             'extractor_retries': 3,
             'ffmpeg_location': '/usr/bin',  # Tell yt-dlp where ffmpeg is
+            # Bypass YouTube bot detection
+            'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+            'nocheckcertificate': True,
         }
 
         if progress_callback:
