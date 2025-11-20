@@ -112,9 +112,26 @@ class VideoDownloader:
 
         logger.info(f"Running ffmpeg to extract audio from {video_path}")
 
-        # Find ffmpeg - try multiple locations
+        # Find ffmpeg - try multiple locations and verify they exist
         import shutil
-        ffmpeg_path = shutil.which('ffmpeg') or '/usr/bin/ffmpeg' or '/usr/local/bin/ffmpeg'
+        ffmpeg_path = shutil.which('ffmpeg')
+
+        if not ffmpeg_path:
+            # Try common installation paths (check if file actually exists)
+            possible_paths = [
+                '/nix/var/nix/profiles/default/bin/ffmpeg',  # Railway/Nix
+                '/usr/bin/ffmpeg',                            # Standard Linux
+                '/usr/local/bin/ffmpeg',                      # Homebrew/manual install
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    ffmpeg_path = path
+                    logger.info(f"Found ffmpeg at: {path}")
+                    break
+
+        if not ffmpeg_path:
+            raise Exception("ffmpeg not found in PATH or common locations. Install ffmpeg or add it to PATH.")
+
         logger.info(f"Using ffmpeg at: {ffmpeg_path}")
 
         cmd = [
