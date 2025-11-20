@@ -44,9 +44,11 @@ class VideoDownloader:
                 except Exception:
                     pass
 
-        # Download options - use simpler format to avoid fragment issues
+        # Download options - flexible format to handle YouTube format changes
         ydl_opts = {
-            'format': 'best[ext=mp4]/best',  # Simplified format selector
+            # Use bestvideo+bestaudio merged, or fallback to best single file
+            # This handles YouTube's dynamic format availability
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best',
             'outtmpl': str(video_path),
             'quiet': False,
             'no_warnings': False,
@@ -54,6 +56,7 @@ class VideoDownloader:
             'retries': 10,
             'fragment_retries': 10,
             'extractor_retries': 3,
+            'merge_output_format': 'mp4',  # Ensure merged output is mp4
         }
 
         if progress_callback:
