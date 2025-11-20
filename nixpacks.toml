@@ -1,4 +1,5 @@
 # Explicitly set provider for faster detection
+# Build optimization: Removed PyTorch/Whisper for 10x faster deploys
 [providers]
 python = "3.12"
 
