@@ -1,63 +1,34 @@
 """
 Speech-to-Text Transcription Module
-Uses local Whisper for transcription with timestamps
+Uses OpenAI Whisper API for transcription with timestamps
 """
 
 import os
-import whisper
+import openai
 from pathlib import Path
-import threading
-
-
-# Singleton Whisper model cache
-class WhisperModelSingleton:
-    """Thread-safe singleton for Whisper model to avoid reloading"""
-    _instance = None
-    _lock = threading.Lock()
-    _model = None
-    _model_size = None
-
-    @classmethod
-    def get_model(cls, model_size='base'):
-        """
-        Get or create the Whisper model instance
-
-        Args:
-            model_size: Model size to load (tiny, base, small, medium, large)
-
-        Returns:
-            Loaded Whisper model
-        """
-        with cls._lock:
-            # Reload if different model size requested
-            if cls._model is None or cls._model_size != model_size:
-                print(f"Loading Whisper model: {model_size} (singleton)")
-                cls._model = whisper.load_model(model_size)
-                cls._model_size = model_size
-            return cls._model
 
 
 class Transcriber:
     def __init__(self, use_google_cloud=False):
         """
-        Initialize transcriber
+        Initialize transcriber with OpenAI Whisper API
 
         Args:
-            use_google_cloud: Deprecated - only Whisper is supported now
+            use_google_cloud: Deprecated - only Whisper API is supported now
         """
         if use_google_cloud:
             raise NotImplementedError(
-                "Google Cloud Speech-to-Text is no longer supported. "
-                "Install google-cloud-speech if needed."
+                "Google Cloud Speech-to-Text is no longer supported."
             )
 
-        # Use singleton to get cached Whisper model
-        model_size = os.getenv('WHISPER_MODEL', 'base')
-        self.model = WhisperModelSingleton.get_model(model_size)
+        # Set OpenAI API key
+        openai.api_key = os.getenv('OPENAI_API_KEY')
+        if not openai.api_key:
+            raise ValueError("OPENAI_API_KEY environment variable not set")
 
     def transcribe(self, audio_path, progress_callback=None):
         """
-        Transcribe audio file with timestamps using Whisper
+        Transcribe audio file with timestamps using OpenAI Whisper API
 
         Args:
             audio_path: Path to audio file (WAV format)
@@ -74,7 +45,7 @@ class Transcriber:
                 ...
             ]
         """
-        return self._transcribe_whisper(audio_path, progress_callback)
+        return self._transcribe_whisper_api(audio_path, progress_callback)
 
     def _transcribe_google(self, audio_path, progress_callback=None):
         """Transcribe using Google Cloud Speech-to-Text"""
@@ -128,25 +99,36 @@ class Transcriber:
 
         return segments
 
-    def _transcribe_whisper(self, audio_path, progress_callback=None):
-        """Transcribe using local Whisper model"""
+    def _transcribe_whisper_api(self, audio_path, progress_callback=None):
+        """Transcribe using OpenAI Whisper API"""
         if progress_callback:
-            progress_callback("Starting Whisper transcription...")
+            progress_callback("Starting Whisper API transcription...")
 
-        result = self.model.transcribe(
-            str(audio_path),
-            verbose=False,
-            language='en',  # Source language
-            word_timestamps=True
-        )
+        # OpenAI Whisper API v0.28.1 usage
+        with open(audio_path, 'rb') as audio_file:
+            response = openai.Audio.transcribe(
+                model="whisper-1",
+                file=audio_file,
+                language='en',  # Source language
+                response_format='verbose_json',  # Get timestamps
+                timestamp_granularities=['segment']  # Get segment-level timestamps
+            )
 
-        # Extract segments with timestamps
+        # Extract segments with timestamps from API response
         segments = []
-        for segment in result['segments']:
+        if hasattr(response, 'segments') and response.segments:
+            for segment in response.segments:
+                segments.append({
+                    'text': segment['text'].strip(),
+                    'start': segment['start'],
+                    'end': segment['end']
+                })
+        else:
+            # Fallback: if no segments, create one segment with full text
             segments.append({
-                'text': segment['text'].strip(),
-                'start': segment['start'],
-                'end': segment['end']
+                'text': response['text'].strip(),
+                'start': 0.0,
+                'end': 0.0  # Unknown duration
             })
 
         if progress_callback:

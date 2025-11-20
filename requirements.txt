@@ -19,8 +19,8 @@ yt-dlp>=2024.11.18  # Latest version with newest YouTube bypass techniques
 # Audio/Video Processing
 ffmpeg-python==0.2.0
 
-# Speech Recognition (local) - using PyPI package (faster, no build)
-openai-whisper==20231117
+# Speech Recognition - using OpenAI Whisper API (no local model, faster deploys)
+# Whisper API is called via openai package above
 
 # Database
 sqlalchemy==2.0.23

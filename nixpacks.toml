@@ -14,7 +14,7 @@ cmds = [
 
 # Cache pip and whisper models between builds for 10x faster deploys
 [phases.install.cacheDirectories]
-paths = ["/root/.cache/pip", "/root/.cache/whisper"]
+paths = ["/root/.cache/pip"]
 
 # Pre-download Whisper model during build (not runtime)
 [phases.build]
