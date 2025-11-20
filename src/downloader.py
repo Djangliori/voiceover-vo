@@ -44,9 +44,11 @@ class VideoDownloader:
                 except Exception:
                     pass
 
-        # Download options - tell yt-dlp where to find ffmpeg
+        # Download options - flexible format selector that works with all videos
         ydl_opts = {
-            'format': 'best[ext=mp4]/best',  # Simplified - works with ffmpeg available
+            # Format priority: best quality video+audio, falling back to whatever works
+            # This will use ffmpeg to merge if needed (now available in PATH)
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
             'outtmpl': str(video_path),
             'quiet': False,
             'no_warnings': False,
@@ -54,7 +56,7 @@ class VideoDownloader:
             'retries': 10,
             'fragment_retries': 10,
             'extractor_retries': 3,
-            'ffmpeg_location': '/usr/bin',  # Help yt-dlp find ffmpeg
+            'ffmpeg_location': '/usr/bin',  # Tell yt-dlp where ffmpeg is
         }
 
         if progress_callback:
