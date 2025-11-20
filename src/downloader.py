@@ -1,6 +1,7 @@
 """
 YouTube Video Downloader Module
 Downloads YouTube videos and extracts audio using yt-dlp
+Version: 1.0.1 - Fixed ffmpeg path detection for Railway/Nix
 """
 
 import os
