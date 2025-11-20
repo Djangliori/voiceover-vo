@@ -1,22 +1,6 @@
-# Git
-.git
-.gitignore
-
-# Environment
-.env
-.env.*
-google-credentials.json
-
-# Documentation
-*.md
-README*
-LICENSE
-
-# Local development
+# Exclude temporary and output files from Railway builds
 temp/
 output/
-docker-compose.yml
-*.log
 
 # Python
 __pycache__/
@@ -24,25 +8,37 @@ __pycache__/
 *$py.class
 *.so
 .Python
-*.egg-info/
-dist/
-build/
-.pytest_cache/
-.coverage
-htmlcov/
+venv/
+env/
+ENV/
 
-# IDEs
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
+
+# Git
+.git/
+.gitignore
+
+# OS
 .DS_Store
+Thumbs.db
 
-# Test files
-test_*.py
-*_test.py
-tests/
+# Logs
+*.log
 
-# Local scripts
-list_elevenlabs_voices.py
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local development
+.env.local
+*.db
+*.sqlite
+
+# Documentation
+README.md
+docs/
