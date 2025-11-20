@@ -12,15 +12,9 @@ cmds = [
   "pip install -r requirements.txt --no-warn-script-location"
 ]
 
-# Cache pip and whisper models between builds for 10x faster deploys
+# Cache pip packages between builds for faster deploys
 [phases.install.cacheDirectories]
 paths = ["/root/.cache/pip"]
-
-# Pre-download Whisper model during build (not runtime)
-[phases.build]
-cmds = [
-  "python3 -c 'import whisper; whisper.load_model(\"base\")'"
-]
 
 [start]
 cmd = "gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 600 app:app"
