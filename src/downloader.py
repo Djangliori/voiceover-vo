@@ -111,8 +111,14 @@ class VideoDownloader:
         logger = logging.getLogger(__name__)
 
         logger.info(f"Running ffmpeg to extract audio from {video_path}")
+
+        # Find ffmpeg - try multiple locations
+        import shutil
+        ffmpeg_path = shutil.which('ffmpeg') or '/usr/bin/ffmpeg' or '/usr/local/bin/ffmpeg'
+        logger.info(f"Using ffmpeg at: {ffmpeg_path}")
+
         cmd = [
-            'ffmpeg',
+            ffmpeg_path,
             '-i', str(video_path),
             '-vn',  # No video
             '-acodec', 'pcm_s16le',  # PCM 16-bit
