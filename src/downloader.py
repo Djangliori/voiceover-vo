@@ -65,8 +65,15 @@ class VideoDownloader:
             'fragment_retries': 10,
             'extractor_retries': 3,
             'ffmpeg_location': '/usr/bin',  # Tell yt-dlp where ffmpeg is
-            # Bypass YouTube bot detection
-            'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+            # Bypass YouTube bot detection - use multiple strategies
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'ios', 'web'],  # Try multiple clients
+                    'skip': ['hls', 'dash'],  # Skip formats that might trigger bot detection
+                }
+            },
+            # Spoof user agent to look like a real browser
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'nocheckcertificate': True,
         }
 
