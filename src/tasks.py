@@ -112,6 +112,24 @@ def process_video_task(self, video_id, youtube_url):
         return int(start + sub_progress)
 
     try:
+        # First, ensure video exists in database
+        session = self.db.get_session()
+        video = session.query(Video).filter_by(video_id=video_id).first()
+        if not video:
+            # Create the video record if it doesn't exist
+            video = Video(
+                video_id=video_id,
+                title="Processing...",
+                original_url=youtube_url,
+                processing_status='processing',
+                progress=0,
+                status_message="Initializing..."
+            )
+            session.add(video)
+            session.commit()
+            logger.info(f"Created video record for {video_id}")
+        self.db.close_session(session)
+
         # Configuration
         output_dir = os.getenv('OUTPUT_DIR', 'output')
         temp_dir = os.getenv('TEMP_DIR', 'temp')
@@ -189,9 +207,13 @@ def process_video_task(self, video_id, youtube_url):
         # Step 3: Translate to Georgian (35-50%)
         update_progress("🌐 Starting translation to Georgian...", 36)
         total_segments = len(segments)
-        def translation_progress(idx, total, text):
-            prog = calc_sub_progress(37, 49, idx, total)
-            update_progress(f"🌐 Translating segment {idx}/{total} with GPT-4...", prog)
+        def translation_progress(message):
+            # Handle both simple message and detailed progress
+            if isinstance(message, str):
+                update_progress(f"🌐 {message}", 40)
+            else:
+                # If translator sends idx, total, text - handle it
+                update_progress(f"🌐 {message}", 40)
 
         translated_segments = translator.translate_segments(
             segments,
@@ -201,9 +223,12 @@ def process_video_task(self, video_id, youtube_url):
 
         # Step 4: Generate Georgian voiceover (50-70%)
         update_progress("🎙️ Starting Georgian voice synthesis with ElevenLabs...", 51)
-        def tts_progress(idx, total, text):
-            prog = calc_sub_progress(52, 69, idx, total)
-            update_progress(f"🎙️ Generating voice for segment {idx}/{total}...", prog)
+        def tts_progress(message):
+            # Handle simple message format from TTS
+            if isinstance(message, str):
+                update_progress(f"🎙️ {message}", 60)
+            else:
+                update_progress(f"🎙️ {message}", 60)
 
         voiceover_segments = tts.generate_voiceover(
             translated_segments,
