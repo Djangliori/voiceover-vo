@@ -89,19 +89,31 @@ class VideoDownloader:
 
         # Find best quality MP4 video
         videos = data['videos']
-        # Sort by quality (prefer 720p or 1080p)
-        mp4_videos = [v for v in videos if v.get('extension') == 'mp4']
-        if not mp4_videos:
-            mp4_videos = videos  # Fallback to any format
 
-        # Get highest quality video
-        best_video = max(mp4_videos, key=lambda v: int(v.get('quality', '0').rstrip('p') or '0'))
-        download_url = best_video['url']
+        # Handle different response formats from RapidAPI
+        if videos and isinstance(videos[0], str):
+            # If videos is a list of strings (URLs), use the first one
+            download_url = videos[0]
+            logger.info(f"Using first available video URL")
+        else:
+            # If videos is a list of objects, find best quality
+            mp4_videos = [v for v in videos if isinstance(v, dict) and v.get('extension') == 'mp4']
+            if not mp4_videos:
+                mp4_videos = [v for v in videos if isinstance(v, dict)]
 
-        logger.info(f"Selected quality: {best_video.get('quality', 'unknown')}")
+            if not mp4_videos:
+                raise Exception("No valid video formats found in API response")
+
+            # Get highest quality video
+            best_video = max(mp4_videos, key=lambda v: int(v.get('quality', '0').rstrip('p') or '0'))
+            download_url = best_video['url']
+            logger.info(f"Selected quality: {best_video.get('quality', 'unknown')}")
 
         if progress_callback:
-            progress_callback(f"Downloading video ({best_video.get('quality', 'unknown')})...")
+            if isinstance(videos[0], str):
+                progress_callback(f"Downloading video...")
+            else:
+                progress_callback(f"Downloading video ({best_video.get('quality', 'unknown')})...")
 
         # Download video file
         logger.info(f"Downloading from: {download_url[:100]}...")
@@ -251,22 +263,29 @@ class VideoDownloader:
 
         logger.info(f"Running ffmpeg to extract audio from {video_path}")
 
-        # Find ffmpeg - try multiple locations and verify they exist
+        # Find ffmpeg - check Nix path first (Railway), then system PATH
         import shutil
-        ffmpeg_path = shutil.which('ffmpeg')
 
-        if not ffmpeg_path:
-            # Try common installation paths (check if file actually exists)
-            possible_paths = [
-                '/nix/var/nix/profiles/default/bin/ffmpeg',  # Railway/Nix
-                '/usr/bin/ffmpeg',                            # Standard Linux
-                '/usr/local/bin/ffmpeg',                      # Homebrew/manual install
-            ]
-            for path in possible_paths:
-                if os.path.exists(path):
-                    ffmpeg_path = path
-                    logger.info(f"Found ffmpeg at: {path}")
-                    break
+        # Try Nix path first (Railway environment)
+        nix_ffmpeg = '/nix/var/nix/profiles/default/bin/ffmpeg'
+        if os.path.exists(nix_ffmpeg):
+            ffmpeg_path = nix_ffmpeg
+            logger.info(f"Found ffmpeg at Nix path: {ffmpeg_path}")
+        else:
+            # Try system PATH
+            ffmpeg_path = shutil.which('ffmpeg')
+
+            if not ffmpeg_path:
+                # Try other common locations
+                possible_paths = [
+                    '/usr/bin/ffmpeg',          # Standard Linux
+                    '/usr/local/bin/ffmpeg',    # Homebrew/manual install
+                ]
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        ffmpeg_path = path
+                        logger.info(f"Found ffmpeg at: {path}")
+                        break
 
         if not ffmpeg_path:
             raise Exception("ffmpeg not found in PATH or common locations. Install ffmpeg or add it to PATH.")
