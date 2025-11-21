@@ -1,12 +1,13 @@
 """
 YouTube Video Downloader Module
 Downloads YouTube videos using YouTube Media Downloader (DataFanatic) API
-Version: 5.0.0 - Using DataFanatic YouTube Media Downloader
+Version: 6.0.0 - Parallel audio + video download for faster processing
 """
 
 import os
 import re
 import time
+import threading
 import requests
 from pathlib import Path
 from src.logging_config import get_logger
@@ -28,22 +29,29 @@ class VideoDownloader:
         if not self.rapidapi_key:
             raise ValueError("RAPIDAPI_KEY environment variable is required")
 
+        # Parallel download state
+        self._video_download_thread = None
+        self._video_download_error = None
+        self._video_download_complete = threading.Event()
+
     def download_video(self, url, progress_callback=None):
         """
-        Download YouTube video and extract audio using RapidAPI only
+        Download YouTube video and extract audio using RapidAPI.
+        Uses parallel download: audio-only stream downloads first (smaller),
+        video stream downloads in background while audio processing starts.
 
         Args:
             url: YouTube video URL
             progress_callback: Optional callback function for progress updates
 
         Returns:
-            dict with video_path, audio_path, title, duration
+            dict with video_path, audio_path, title, duration, video_id
 
         Raises:
             Exception: If download fails or API quota is exceeded
         """
-        logger.info(f"Starting download for URL: {url}")
-        logger.info("Using YouTube Media Downloader (DataFanatic) API")
+        logger.info(f"Starting parallel download for URL: {url}")
+        logger.info("Using YouTube Media Downloader (DataFanatic) API with parallel streams")
 
         if progress_callback:
             progress_callback("Fetching video info from RapidAPI...")
@@ -54,25 +62,151 @@ class VideoDownloader:
 
         video_path = self.temp_dir / f"{video_id}.mp4"
         audio_path = self.temp_dir / f"{video_id}_audio.wav"
-        logger.info(f"Video path: {video_path}, Audio path: {audio_path}")
+        audio_source_path = self.temp_dir / f"{video_id}_audio_source.m4a"  # For audio-only stream
 
-        # Call RapidAPI to get download link
-        # Using YouTube Media Downloader (DataFanatic) API
+        # Reset parallel download state
+        self._video_download_error = None
+        self._video_download_complete = threading.Event()
+
+        # Fetch video info from API
+        data = self._fetch_video_info(video_id, progress_callback)
+
+        # Get video metadata
+        title = data.get('title', 'Unknown')
+        duration = data.get('lengthSeconds')
+        if duration is None:
+            duration_str = data.get('duration', '0')
+            duration = int(duration_str) if duration_str and str(duration_str).isdigit() else 0
+        else:
+            duration = int(duration) if duration else 0
+
+        logger.info(f"Video info: {title} (duration: {duration}s)")
+
+        if not title or title == 'Unknown':
+            logger.warning(f"Could not get video title, using video ID: {video_id}")
+            title = f"Video {video_id}"
+
+        # Parse available formats
+        formats = self._parse_formats(data)
+
+        if not formats:
+            raise Exception("No video formats available from RapidAPI")
+
+        # Find best audio-only and video-only streams for parallel download
+        audio_only_stream = self._find_best_audio_stream(formats)
+        video_only_stream = self._find_best_video_stream(formats)
+        combined_stream = self._find_best_combined_stream(formats)
+
+        # Strategy: If we have separate streams, download in parallel
+        # Otherwise, fall back to combined stream
+        use_parallel = audio_only_stream is not None and video_only_stream is not None
+
+        if use_parallel:
+            logger.info("Using PARALLEL download strategy (audio-only + video-only streams)")
+            logger.info(f"Audio stream: {audio_only_stream.get('quality', 'unknown')}")
+            logger.info(f"Video stream: {video_only_stream.get('quality', 'unknown')}")
+
+            # Start video download in background thread
+            if progress_callback:
+                progress_callback("Starting parallel download (audio + video)...")
+
+            self._video_download_thread = threading.Thread(
+                target=self._download_file_thread,
+                args=(video_only_stream['url'], video_path, "video"),
+                daemon=True
+            )
+            self._video_download_thread.start()
+
+            # Download audio in foreground (smaller, faster)
+            if progress_callback:
+                progress_callback("Downloading audio stream (video downloading in background)...")
+
+            self._download_file(audio_only_stream['url'], audio_source_path, "audio", progress_callback)
+
+            # Convert audio to WAV format for processing
+            if progress_callback:
+                progress_callback("Converting audio to WAV...")
+
+            self._convert_audio_to_wav(audio_source_path, audio_path)
+            logger.info("Audio ready for processing, video still downloading in background")
+
+        else:
+            # Fall back to combined stream (old behavior)
+            logger.info("Using SEQUENTIAL download (combined stream)")
+
+            if not combined_stream:
+                raise Exception("No valid video URL found in API response")
+
+            if progress_callback:
+                progress_callback(f"Downloading video ({combined_stream.get('quality', 'unknown')})...")
+
+            self._download_file(combined_stream['url'], video_path, "video", progress_callback)
+
+            # Extract audio from video
+            if progress_callback:
+                progress_callback("Extracting audio...")
+
+            self._extract_audio(video_path, audio_path)
+            logger.info("Audio extraction complete")
+
+            # Mark video as complete (no background thread)
+            self._video_download_complete.set()
+
+        return {
+            'video_path': str(video_path),
+            'audio_path': str(audio_path),
+            'title': title,
+            'duration': duration,
+            'video_id': video_id
+        }
+
+    def wait_for_video_download(self, timeout=600):
+        """
+        Wait for background video download to complete.
+        Call this before combining video with audio.
+
+        Args:
+            timeout: Maximum seconds to wait (default 10 minutes)
+
+        Returns:
+            True if download completed successfully
+
+        Raises:
+            Exception: If download failed or timed out
+        """
+        if self._video_download_complete.is_set():
+            # Already complete
+            if self._video_download_error:
+                raise Exception(f"Video download failed: {self._video_download_error}")
+            return True
+
+        logger.info("Waiting for background video download to complete...")
+
+        # Wait for the event with timeout
+        completed = self._video_download_complete.wait(timeout=timeout)
+
+        if not completed:
+            raise Exception(f"Video download timed out after {timeout} seconds")
+
+        if self._video_download_error:
+            raise Exception(f"Video download failed: {self._video_download_error}")
+
+        logger.info("Background video download completed successfully")
+        return True
+
+    def _fetch_video_info(self, video_id, progress_callback=None):
+        """Fetch video info from RapidAPI"""
         rapidapi_url = "https://youtube-media-downloader.p.rapidapi.com/v2/video/details"
         headers = {
             "X-RapidAPI-Key": self.rapidapi_key,
             "X-RapidAPI-Host": "youtube-media-downloader.p.rapidapi.com"
         }
-        # DataFanatic uses query parameter for video ID
-        # Request formats with audio
         params = {
             "videoId": video_id,
-            "includeFormats": "true"  # Request all available formats
+            "includeFormats": "true"
         }
 
-        logger.info("Fetching video details from RapidAPI...")
-
-        # Check API usage limits BEFORE making request
+        # Check API usage limits
         can_proceed, message = api_tracker.can_make_request()
         if not can_proceed:
             logger.error(f"API limit reached: {message}")
@@ -80,7 +214,7 @@ class VideoDownloader:
                 progress_callback(f"Error: {message}")
             raise Exception(message)
 
-        # Rate limiting: Ensure minimum time between API calls
+        # Rate limiting
         global LAST_API_CALL_TIME
         current_time = time.time()
         time_since_last_call = current_time - LAST_API_CALL_TIME
@@ -92,237 +226,249 @@ class VideoDownloader:
         LAST_API_CALL_TIME = time.time()
 
         try:
-            # Use session with proper cleanup
             with requests.Session() as session:
                 response = session.get(rapidapi_url, headers=headers, params=params, timeout=30)
 
-                # Handle rate limiting specifically
                 if response.status_code == 429:
-                    api_tracker.record_request(success=False)  # Record failed request
-                    error_msg = "RapidAPI quota exceeded. Please check your API limits or upgrade your plan."
-                    logger.error(error_msg)
-                    if progress_callback:
-                        progress_callback(f"Error: {error_msg}")
-                    raise Exception(error_msg)
+                    api_tracker.record_request(success=False)
+                    raise Exception("RapidAPI quota exceeded. Please check your API limits.")
 
-                # Handle other HTTP errors
                 if response.status_code != 200:
-                    api_tracker.record_request(success=False)  # Record failed request
-                    error_msg = f"RapidAPI error: HTTP {response.status_code}"
-                    logger.error(error_msg)
-                    raise Exception(error_msg)
+                    api_tracker.record_request(success=False)
+                    raise Exception(f"RapidAPI error: HTTP {response.status_code}")
 
-                # Record successful API request
                 api_tracker.record_request(success=True)
                 data = response.json()
 
-            # Check for API-level errors
             if 'error' in data:
-                error_msg = f"RapidAPI error: {data.get('error', 'Unknown error')}"
-                logger.error(error_msg)
-                raise Exception(error_msg)
+                raise Exception(f"RapidAPI error: {data.get('error', 'Unknown error')}")
 
-            # DataFanatic API response structure
             if not data.get('videos'):
-                raise Exception("No video formats available from RapidAPI. Video may be unavailable or private.")
+                raise Exception("No video formats available. Video may be unavailable or private.")
 
-            # Get video info - DataFanatic format
-            title = data.get('title', 'Unknown')
-
-            # DataFanatic uses lengthSeconds for duration
-            duration = data.get('lengthSeconds')
-            if duration is None:
-                duration_str = data.get('duration', '0')
-                duration = int(duration_str) if duration_str and str(duration_str).isdigit() else 0
-            else:
-                duration = int(duration) if duration else 0
-
-            logger.info(f"Video info: {title} (duration: {duration}s)")
-
-            # Check if we got valid data
-            if not title or title == 'Unknown':
-                logger.warning(f"Could not get video title, using video ID: {video_id}")
-                title = f"Video {video_id}"
-
-            # DataFanatic API v2 returns data in 'videos' with nested 'items'
-            videos_container = data.get('videos', {})
-
-            # Debug log the response structure
-            if isinstance(videos_container, dict):
-                logger.info(f"Videos container keys: {list(videos_container.keys())}")
-
-                # Log available formats for debugging
-                if 'items' in videos_container:
-                    logger.info(f"Available formats count: {len(videos_container.get('items', []))}")
-                    for idx, item in enumerate(videos_container.get('items', [])[:5]):  # Log first 5
-                        if isinstance(item, dict):
-                            logger.info(f"Format {idx}: quality={item.get('quality')}, "
-                                      f"hasAudio={item.get('hasAudio')}, "
-                                      f"extension={item.get('extension')}, "
-                                      f"size={item.get('size')}")
-
-                # Check for error response
-                if videos_container.get('errorId') == 'Success' and 'items' in videos_container:
-                    # Success response with items
-                    videos = videos_container.get('items', [])
-                    logger.info(f"Found {len(videos)} video items")
-                elif videos_container.get('errorId'):
-                    # Error response
-                    error_msg = videos_container.get('errorId', 'Unknown error')
-                    raise Exception(f"API returned error: {error_msg}")
-                else:
-                    # Old format - videos might be the actual video list/dict
-                    videos = videos_container
-            else:
-                videos = videos_container
-
-            if not videos:
-                raise Exception("No video formats available from RapidAPI")
-
-            # Handle different video formats
-            download_url = None
-            best_video = {'quality': 'default'}
-
-            # Check if videos is a list of video objects
-            if isinstance(videos, list) and len(videos) > 0:
-                # DataFanatic v2 format: list of objects with 'url' and 'quality' or 'format'
-                valid_videos = []
-
-                for video in videos:
-                    if isinstance(video, dict):
-                        url = video.get('url')
-                        if url and url.startswith('http'):
-                            quality = video.get('quality') or video.get('format') or 'unknown'
-                            has_audio = video.get('hasAudio', True)  # Assume true if not specified
-                            extension = video.get('extension', 'mp4')
-
-                            # Log video details
-                            logger.info(f"Found format: {quality}, hasAudio={has_audio}, ext={extension}")
-
-                            # Only add videos that have audio or are marked as complete
-                            # Prefer mp4 formats as they usually have both streams
-                            if has_audio or 'audio' in str(quality).lower() or extension == 'mp4':
-                                valid_videos.append({
-                                    'url': url,
-                                    'quality': quality,
-                                    'hasAudio': has_audio,
-                                    'extension': extension
-                                })
-
-                if valid_videos:
-                    # Sort by quality but PREFER formats with audio
-                    def get_quality_score(v):
-                        score = 0
-                        q = str(v.get('quality', ''))
-
-                        # Give huge bonus for having audio
-                        if v.get('hasAudio', True):
-                            score += 10000
-
-                        # Add resolution score
-                        if '1080' in q: score += 1080
-                        elif '720' in q: score += 720
-                        elif '480' in q: score += 480
-                        elif '360' in q: score += 360
-                        elif '240' in q: score += 240
-
-                        # Prefer mp4
-                        if v.get('extension') == 'mp4':
-                            score += 100
-
-                        return score
-
-                    best_video = max(valid_videos, key=get_quality_score)
-                    download_url = best_video['url']
-                    logger.info(f"Selected format: {best_video['quality']} (hasAudio={best_video.get('hasAudio', 'unknown')})")
-                else:
-                    logger.error(f"No valid URLs with audio found in {len(videos)} videos")
-                    raise Exception("No valid video URLs with audio found in API response")
-
-            # Check if videos is a dictionary (old format: {"720p": "url", ...})
-            elif isinstance(videos, dict):
-                # Old format with quality as keys
-                quality_order = ['1080p', '720p', '480p', '360p', '240p', '144p']
-
-                for quality in quality_order:
-                    if quality in videos and videos[quality]:
-                        url = videos[quality]
-                        if url and url.startswith('http'):
-                            download_url = url
-                            best_video = {'quality': quality}
-                            logger.info(f"Selected quality from dict: {quality}")
-                            break
-
-                # If no standard quality found, get first valid URL
-                if not download_url:
-                    for key, url in videos.items():
-                        if url and isinstance(url, str) and url.startswith('http'):
-                            download_url = url
-                            best_video = {'quality': key}
-                            logger.info(f"Using first available quality: {key}")
-                            break
-
-            if not download_url:
-                logger.error(f"Could not extract download URL from videos: {type(videos)}")
-                raise Exception("No valid video URL found in API response")
-
-            if progress_callback:
-                progress_callback(f"Downloading video ({best_video.get('quality', 'unknown')})...")
-
-            # Download video file with proper session management
-            logger.info(f"Downloading from: {download_url[:100]}...")
-
-            with requests.Session() as download_session:
-                # Increased timeout for larger videos (5 minutes)
-                video_response = download_session.get(download_url, stream=True, timeout=300)
-                video_response.raise_for_status()
-
-                total_size = int(video_response.headers.get('content-length', 0))
-                downloaded = 0
-
-                with open(video_path, 'wb') as f:
-                    for chunk in video_response.iter_content(chunk_size=1024*1024):  # 1MB chunks
-                        if chunk:
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            if progress_callback and total_size > 0:
-                                percent = (downloaded / total_size) * 100
-                                progress_callback(f"Downloading... {percent:.1f}% ({downloaded//1024//1024}MB/{total_size//1024//1024}MB)")
-
-            logger.info(f"Video download complete: {downloaded//1024//1024}MB downloaded")
-
-            # Verify file was fully downloaded
-            if total_size > 0 and downloaded < total_size:
-                logger.warning(f"Incomplete download: {downloaded}/{total_size} bytes")
-
-            # Extract audio
-            if progress_callback:
-                progress_callback("Extracting audio...")
-
-            self._extract_audio(video_path, audio_path)
-            logger.info("Audio extraction complete")
-
-            return {
-                'video_path': str(video_path),
-                'audio_path': str(audio_path),
-                'title': title,
-                'duration': duration,
-                'video_id': video_id
-            }
+            return data
 
         except requests.Timeout:
-            error_msg = "Request to RapidAPI timed out. Please try again."
-            logger.error(error_msg)
-            raise Exception(error_msg)
+            raise Exception("Request to RapidAPI timed out. Please try again.")
         except requests.RequestException as e:
-            error_msg = f"Network error while contacting RapidAPI: {str(e)}"
-            logger.error(error_msg)
-            raise Exception(error_msg)
+            raise Exception(f"Network error while contacting RapidAPI: {str(e)}")
+
+    def _parse_formats(self, data):
+        """Parse available formats from API response"""
+        videos_container = data.get('videos', {})
+        formats = []
+
+        if isinstance(videos_container, dict):
+            logger.info(f"Videos container keys: {list(videos_container.keys())}")
+
+            if videos_container.get('errorId') == 'Success' and 'items' in videos_container:
+                items = videos_container.get('items', [])
+            elif videos_container.get('errorId'):
+                raise Exception(f"API returned error: {videos_container.get('errorId')}")
+            elif 'items' in videos_container:
+                items = videos_container.get('items', [])
+            else:
+                items = []
+        else:
+            items = videos_container if isinstance(videos_container, list) else []
+
+        for item in items:
+            if isinstance(item, dict):
+                url = item.get('url')
+                if url and url.startswith('http'):
+                    formats.append({
+                        'url': url,
+                        'quality': item.get('quality') or item.get('format') or 'unknown',
+                        'hasAudio': item.get('hasAudio', True),
+                        'hasVideo': item.get('hasVideo', True),
+                        'extension': item.get('extension', 'mp4'),
+                        'size': item.get('size', 0)
+                    })
+
+        logger.info(f"Parsed {len(formats)} available formats")
+
+        # Log first few formats for debugging
+        for i, fmt in enumerate(formats[:8]):
+            logger.info(f"Format {i}: quality={fmt['quality']}, hasAudio={fmt['hasAudio']}, "
+                       f"hasVideo={fmt.get('hasVideo', 'unknown')}, ext={fmt['extension']}")
+
+        return formats
+
+    def _find_best_audio_stream(self, formats):
+        """Find best audio-only stream (no video)"""
+        audio_streams = [f for f in formats if f.get('hasAudio') and not f.get('hasVideo', True)]
+
+        if not audio_streams:
+            # Also check for formats explicitly marked as audio
+            audio_streams = [f for f in formats
+                           if 'audio' in str(f.get('quality', '')).lower()
+                           or f.get('extension') in ('m4a', 'webm', 'mp3')]
+
+        if not audio_streams:
+            logger.info("No audio-only stream found")
+            return None
+
+        # Prefer higher quality audio
+        def audio_score(f):
+            score = 0
+            q = str(f.get('quality', '')).lower()
+            if '320' in q: score = 320
+            elif '256' in q: score = 256
+            elif '192' in q: score = 192
+            elif '128' in q: score = 128
+            elif '64' in q: score = 64
+            # Prefer m4a over webm
+            if f.get('extension') == 'm4a':
+                score += 10
+            return score
+
+        best = max(audio_streams, key=audio_score)
+        logger.info(f"Selected audio-only stream: {best.get('quality')}")
+        return best
+
+    def _find_best_video_stream(self, formats):
+        """Find best video-only stream (no audio)"""
+        video_streams = [f for f in formats if f.get('hasVideo', True) and not f.get('hasAudio', True)]
+
+        if not video_streams:
+            logger.info("No video-only stream found")
+            return None
+
+        # Prefer higher resolution, mp4
+        def video_score(f):
+            score = 0
+            q = str(f.get('quality', ''))
+            if '1080' in q: score = 1080
+            elif '720' in q: score = 720
+            elif '480' in q: score = 480
+            elif '360' in q: score = 360
+            elif '240' in q: score = 240
+            if f.get('extension') == 'mp4':
+                score += 50
+            return score
+
+        best = max(video_streams, key=video_score)
+        logger.info(f"Selected video-only stream: {best.get('quality')}")
+        return best
+
+    def _find_best_combined_stream(self, formats):
+        """Find best combined stream (has both audio and video)"""
+        combined = [f for f in formats if f.get('hasAudio') and f.get('hasVideo', True)]
+
+        if not combined:
+            # Fall back to any stream that might have both
+            combined = [f for f in formats
+                       if f.get('extension') == 'mp4' and f.get('hasAudio', True)]
+
+        if not combined:
+            return None
+
+        def combined_score(f):
+            score = 0
+            q = str(f.get('quality', ''))
+            if f.get('hasAudio', True):
+                score += 10000
+            if '1080' in q: score += 1080
+            elif '720' in q: score += 720
+            elif '480' in q: score += 480
+            elif '360' in q: score += 360
+            if f.get('extension') == 'mp4':
+                score += 100
+            return score
+
+        best = max(combined, key=combined_score)
+        logger.info(f"Selected combined stream: {best.get('quality')} (hasAudio={best.get('hasAudio')})")
+        return best
+
+    def _download_file(self, url, path, stream_type, progress_callback=None):
+        """Download a file from URL to path"""
+        logger.info(f"Downloading {stream_type} from: {url[:100]}...")
+
+        with requests.Session() as session:
+            response = session.get(url, stream=True, timeout=300)
+            response.raise_for_status()
+
+            total_size = int(response.headers.get('content-length', 0))
+            downloaded = 0
+
+            with open(path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=1024*1024):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if progress_callback and total_size > 0:
+                            percent = (downloaded / total_size) * 100
+                            size_mb = downloaded // (1024*1024)
+                            total_mb = total_size // (1024*1024)
+                            progress_callback(f"Downloading {stream_type}... {percent:.1f}% ({size_mb}MB/{total_mb}MB)")
+
+        logger.info(f"{stream_type.capitalize()} download complete: {downloaded//(1024*1024)}MB")
+
+        if total_size > 0 and downloaded < total_size:
+            logger.warning(f"Incomplete {stream_type} download: {downloaded}/{total_size} bytes")
+
+    def _download_file_thread(self, url, path, stream_type):
+        """Download file in background thread"""
+        try:
+            logger.info(f"Background thread starting {stream_type} download...")
+            self._download_file(url, path, stream_type)
+            logger.info(f"Background {stream_type} download completed")
         except Exception as e:
-            # Re-raise with more context if needed
-            if "quota" in str(e).lower() or "429" in str(e):
-                raise Exception("API quota exceeded. Please check your RapidAPI subscription.")
-            raise
+            self._video_download_error = str(e)
+            logger.error(f"Background {stream_type} download failed: {e}")
+        finally:
+            self._video_download_complete.set()
+
+    def _convert_audio_to_wav(self, source_path, output_path):
+        """Convert audio file to WAV format for processing"""
+        import subprocess
+        import shutil
+
+        ffmpeg_path = self._get_ffmpeg_path()
+
+        cmd = [
+            ffmpeg_path,
+            '-i', str(source_path),
+            '-vn',
+            '-acodec', 'pcm_s16le',
+            '-ar', '16000',  # 16kHz for speech recognition
+            '-ac', '1',  # Mono
+            '-y',
+            str(output_path)
+        ]
+
+        logger.info(f"Converting audio: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            logger.error(f"Audio conversion failed: {result.stderr}")
+            raise Exception(f"Failed to convert audio: {result.stderr}")
+
+        logger.info(f"Audio converted to WAV: {output_path}")
+
+        # Clean up source file
+        try:
+            Path(source_path).unlink()
+        except Exception:
+            pass
+
+    def _get_ffmpeg_path(self):
+        """Get ffmpeg path"""
+        import shutil
+
+        nix_ffmpeg = '/nix/var/nix/profiles/default/bin/ffmpeg'
+        if os.path.exists(nix_ffmpeg):
+            return nix_ffmpeg
+
+        ffmpeg_path = shutil.which('ffmpeg')
+        if ffmpeg_path:
+            return ffmpeg_path
+
+        for path in ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg']:
+            if os.path.exists(path):
+                return path
+
+        raise Exception("ffmpeg not found")
 
     def _extract_video_id_from_url(self, url):
         """Extract video ID from YouTube URL using consolidated function"""
@@ -414,6 +560,7 @@ class VideoDownloader:
         files_to_remove = [
             self.temp_dir / f"{video_id}.mp4",
             self.temp_dir / f"{video_id}_audio.wav",
+            self.temp_dir / f"{video_id}_audio_source.m4a",  # Audio-only stream source
             self.temp_dir / f"{video_id}_mixed.wav",
             self.temp_dir / f"{video_id}_voiceover.wav",
         ]

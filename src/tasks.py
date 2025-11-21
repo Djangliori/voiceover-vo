@@ -232,7 +232,16 @@ def process_video_task(self, video_id, youtube_url):
         update_progress("✅ Audio tracks mixed successfully", 85)
 
         # Step 6: Combine with video (85-95%)
-        update_progress("🎬 Encoding final video with Georgian audio...", 87)
+        # IMPORTANT: Wait for background video download to complete before combining
+        update_progress("🎬 Preparing video for encoding...", 86)
+        try:
+            downloader.wait_for_video_download(timeout=600)  # Wait up to 10 minutes
+            update_progress("🎬 Video download complete, encoding...", 87)
+        except Exception as video_wait_error:
+            logger.error(f"Video download failed: {video_wait_error}")
+            raise Exception(f"Video download failed: {video_wait_error}")
+
+        update_progress("🎬 Encoding final video with Georgian audio...", 88)
         output_filename = f"{video_id}_georgian.mp4"
         final_video_path = processor.combine_video_audio(
             video_info['video_path'],
