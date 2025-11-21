@@ -66,7 +66,6 @@ packages = {
     "openai": "OpenAI",
     "elevenlabs": "ElevenLabs",
     "httpx": "httpx",
-    "yt_dlp": "yt-dlp",
     "ffmpeg": "ffmpeg-python",
     "sqlalchemy": "SQLAlchemy",
     "psycopg2": "psycopg2-binary",
