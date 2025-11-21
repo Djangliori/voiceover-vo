@@ -140,41 +140,69 @@ class VideoDownloader:
                 logger.warning(f"Could not get video title, using video ID: {video_id}")
                 title = f"Video {video_id}"
 
-            # Get videos array from DataFanatic
-            videos = data.get('videos', [])
+            # Get videos from DataFanatic - can be dict or list
+            videos = data.get('videos', {})
+
+            # Debug log the videos format
+            logger.info(f"Videos type: {type(videos)}, Keys/Length: {list(videos.keys()) if isinstance(videos, dict) else len(videos) if isinstance(videos, list) else 'empty'}")
 
             if not videos:
                 raise Exception("No video formats available from RapidAPI")
 
-            # Handle DataFanatic response format
-            if videos and isinstance(videos[0], str):
-                # If videos is a list of strings (URLs), use the first one
-                download_url = videos[0]
-                logger.info(f"Using first available video URL")
-                best_video = {'quality': 'default'}
-            else:
-                # DataFanatic returns objects with 'quality' and 'url' fields
-                valid_videos = [v for v in videos if isinstance(v, dict) and v.get('url')]
+            # Handle different DataFanatic response formats
+            download_url = None
+            best_video = {'quality': 'default'}
 
-                if not valid_videos:
-                    raise Exception("No valid video formats found in API response")
+            # Check if videos is a dictionary (format: {"quality": "url", ...})
+            if isinstance(videos, dict):
+                # Get the highest quality available
+                quality_order = ['1080p', '720p', '480p', '360p', '240p', '144p']
 
-                # Get highest quality video (DataFanatic uses '720p', '1080p', etc.)
-                def get_quality_score(fmt):
-                    quality = fmt.get('quality', '0')
-                    if isinstance(quality, str) and quality.endswith('p'):
-                        return int(quality[:-1])
-                    return 0
+                for quality in quality_order:
+                    if quality in videos and videos[quality]:
+                        download_url = videos[quality]
+                        best_video = {'quality': quality}
+                        logger.info(f"Selected quality from dict: {quality}")
+                        break
 
-                best_video = max(valid_videos, key=get_quality_score, default=valid_videos[0])
-                download_url = best_video['url']
-                logger.info(f"Selected quality: {best_video.get('quality', 'unknown')}")
+                # If no standard quality found, get first available
+                if not download_url and videos:
+                    first_key = next(iter(videos))
+                    download_url = videos[first_key]
+                    best_video = {'quality': first_key}
+                    logger.info(f"Using first available quality: {first_key}")
+
+            # Check if videos is a list
+            elif isinstance(videos, list) and len(videos) > 0:
+                if isinstance(videos[0], str):
+                    # List of URLs
+                    download_url = videos[0]
+                    logger.info(f"Using first available video URL from list")
+                elif isinstance(videos[0], dict):
+                    # List of objects with 'quality' and 'url' fields
+                    valid_videos = [v for v in videos if v.get('url')]
+
+                    if valid_videos:
+                        # Get highest quality
+                        def get_quality_score(fmt):
+                            quality = fmt.get('quality', '0')
+                            if isinstance(quality, str) and quality.endswith('p'):
+                                try:
+                                    return int(quality[:-1])
+                                except ValueError:
+                                    return 0
+                            return 0
+
+                        best_video = max(valid_videos, key=get_quality_score)
+                        download_url = best_video['url']
+                        logger.info(f"Selected quality from list: {best_video.get('quality', 'unknown')}")
+
+            if not download_url:
+                logger.error(f"Could not extract download URL from videos: {type(videos)}")
+                raise Exception("No valid video URL found in API response")
 
             if progress_callback:
-                if isinstance(videos[0], str):
-                    progress_callback(f"Downloading video...")
-                else:
-                    progress_callback(f"Downloading video ({best_video.get('quality', 'unknown')})...")
+                progress_callback(f"Downloading video ({best_video.get('quality', 'unknown')})...")
 
             # Download video file with proper session management
             logger.info(f"Downloading from: {download_url[:100]}...")
