@@ -1,0 +1,38 @@
+# Use Python slim image for smaller size
+FROM python:3.12-slim
+
+# Install system dependencies including ffmpeg
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN groupadd -r celery && useradd -r -g celery -u 1000 celery
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Change ownership to celery user
+RUN chown -R celery:celery /app
+
+# Create temp directory with proper permissions
+RUN mkdir -p /app/temp && chown -R celery:celery /app/temp
+
+# Switch to non-root user
+USER celery
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV CELERY_WORKER_CONCURRENCY=2
+
+# Run celery worker
+CMD ["celery", "-A", "celery_app", "worker", "--loglevel=info", "--concurrency=2"]

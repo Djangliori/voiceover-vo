@@ -1,12 +1,12 @@
 """
 YouTube Video Downloader Module
-Downloads YouTube videos using RapidAPI (fallback to yt-dlp)
-Version: 2.0.0 - RapidAPI integration for reliable downloads
+Downloads YouTube videos using RapidAPI only
+Version: 3.0.0 - RapidAPI only (no yt-dlp dependency)
 """
 
 import os
+import re
 import requests
-import yt_dlp
 from pathlib import Path
 
 
@@ -15,11 +15,13 @@ class VideoDownloader:
         self.temp_dir = Path(temp_dir)
         self.temp_dir.mkdir(exist_ok=True)
         self.rapidapi_key = os.getenv('RAPIDAPI_KEY')
-        self.use_rapidapi = bool(self.rapidapi_key)
+
+        if not self.rapidapi_key:
+            raise ValueError("RAPIDAPI_KEY environment variable is required")
 
     def download_video(self, url, progress_callback=None):
         """
-        Download YouTube video and extract audio
+        Download YouTube video and extract audio using RapidAPI only
 
         Args:
             url: YouTube video URL
@@ -27,35 +29,21 @@ class VideoDownloader:
 
         Returns:
             dict with video_path, audio_path, title, duration
+
+        Raises:
+            Exception: If download fails or API quota is exceeded
         """
         import logging
         logger = logging.getLogger(__name__)
 
         logger.info(f"Starting download for URL: {url}")
-
-        # Try RapidAPI first if key is available
-        if self.use_rapidapi:
-            logger.info("Using RapidAPI for download (reliable, no bot detection)")
-            try:
-                return self._download_rapidapi(url, progress_callback)
-            except Exception as e:
-                logger.warning(f"RapidAPI download failed: {e}. Falling back to yt-dlp...")
-        else:
-            logger.info("RAPIDAPI_KEY not set, using yt-dlp (may face bot detection)")
-
-        # Fallback to yt-dlp
-        return self._download_ytdlp(url, progress_callback)
-
-    def _download_rapidapi(self, url, progress_callback=None):
-        """Download using RapidAPI YouTube downloader"""
-        import logging
-        logger = logging.getLogger(__name__)
+        logger.info("Using RapidAPI for download")
 
         if progress_callback:
             progress_callback("Fetching video info from RapidAPI...")
 
         # Extract video ID from URL
-        video_id = self._extract_video_id_simple(url)
+        video_id = self._extract_video_id_from_url(url)
         logger.info(f"Extracted video ID: {video_id}")
 
         video_path = self.temp_dir / f"{video_id}.mp4"
@@ -72,161 +60,106 @@ class VideoDownloader:
         params = {"videoId": video_id}
 
         logger.info("Fetching video details from RapidAPI...")
-        response = requests.get(rapidapi_url, headers=headers, params=params)
-        response.raise_for_status()
-
-        data = response.json()
-
-        if not data.get('videos'):
-            raise Exception("No video formats available from RapidAPI")
-
-        # Get video info - handle both DataFanatic and other API formats
-        title = data.get('title', 'Unknown')
-
-        # Try lengthSeconds first (DataFanatic), then duration (other APIs)
-        duration = data.get('lengthSeconds')
-        if duration is None:
-            duration_str = data.get('duration', '0')
-            duration = int(duration_str) if duration_str and str(duration_str).isdigit() else 0
-        else:
-            duration = int(duration) if duration else 0
-
-        logger.info(f"Video info: {title} (duration: {duration}s)")
-
-        # Check if we got valid data
-        if not title or title == 'Unknown' or duration == 0:
-            raise Exception(f"Invalid API response - title: {title}, duration: {duration}")
-
-        # Find best quality MP4 video
-        videos = data.get('videos', [])
-
-        if not videos:
-            raise Exception("No video formats available from RapidAPI")
-
-        # Handle different response formats from RapidAPI
-        if videos and isinstance(videos[0], str):
-            # If videos is a list of strings (URLs), use the first one
-            download_url = videos[0]
-            logger.info(f"Using first available video URL")
-        else:
-            # If videos is a list of objects, find best quality
-            # DataFanatic API uses 'quality' field like '720p', '1080p'
-            valid_videos = [v for v in videos if isinstance(v, dict) and v.get('url')]
-
-            if not valid_videos:
-                raise Exception("No valid video formats found in API response")
-
-            # Get highest quality video
-            best_video = max(valid_videos, key=lambda v: int(v.get('quality', '0').rstrip('p') or '0'))
-            download_url = best_video['url']
-            logger.info(f"Selected quality: {best_video.get('quality', 'unknown')}")
-
-        if progress_callback:
-            if isinstance(videos[0], str):
-                progress_callback(f"Downloading video...")
-            else:
-                progress_callback(f"Downloading video ({best_video.get('quality', 'unknown')})...")
-
-        # Download video file
-        logger.info(f"Downloading from: {download_url[:100]}...")
-        video_response = requests.get(download_url, stream=True)
-        video_response.raise_for_status()
-
-        total_size = int(video_response.headers.get('content-length', 0))
-        downloaded = 0
-
-        with open(video_path, 'wb') as f:
-            for chunk in video_response.iter_content(chunk_size=1024*1024):  # 1MB chunks
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if progress_callback and total_size > 0:
-                        percent = (downloaded / total_size) * 100
-                        progress_callback(f"Downloading... {percent:.1f}% ({downloaded//1024//1024}MB/{total_size//1024//1024}MB)")
-
-        logger.info("Video download complete")
-
-        # Extract audio
-        if progress_callback:
-            progress_callback("Extracting audio...")
-
-        self._extract_audio(video_path, audio_path)
-        logger.info("Audio extraction complete")
-
-        return {
-            'video_path': str(video_path),
-            'audio_path': str(audio_path),
-            'title': title,
-            'duration': duration,
-            'video_id': video_id
-        }
-
-    def _download_ytdlp(self, url, progress_callback=None):
-        """Download using yt-dlp (fallback method)"""
-        import logging
-        logger = logging.getLogger(__name__)
-
-        video_id = self._extract_video_id(url)
-        logger.info(f"Extracted video ID: {video_id}")
-
-        video_path = self.temp_dir / f"{video_id}.mp4"
-        audio_path = self.temp_dir / f"{video_id}_audio.wav"
-
-        # Create progress hook for yt-dlp that reports detailed download progress
-        def ytdlp_progress_hook(d):
-            if progress_callback and d['status'] == 'downloading':
-                try:
-                    downloaded = d.get('downloaded_bytes', 0)
-                    total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
-                    if total > 0:
-                        percent = (downloaded / total) * 100
-                        speed = d.get('speed', 0)
-                        speed_str = f"{speed/1024/1024:.1f} MB/s" if speed else "? MB/s"
-                        progress_callback(f"Downloading... {percent:.1f}% ({downloaded//1024//1024}MB/{total//1024//1024}MB) @ {speed_str}")
-                    else:
-                        progress_callback(f"Downloading... {downloaded//1024//1024}MB")
-                except Exception:
-                    pass
-
-        # Download options - flexible format selector that works with all videos
-        ydl_opts = {
-            # Format priority: best quality video+audio, falling back to whatever works
-            # This will use ffmpeg to merge if needed (now available in PATH)
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
-            'outtmpl': str(video_path),
-            'quiet': False,
-            'no_warnings': False,
-            'http_chunk_size': 10485760,  # 10MB chunks
-            'retries': 10,
-            'fragment_retries': 10,
-            'extractor_retries': 3,
-            'ffmpeg_location': '/usr/bin',  # Tell yt-dlp where ffmpeg is
-            # Bypass YouTube bot detection - use multiple strategies (fallback only)
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android', 'ios', 'web'],
-                    'skip': ['hls', 'dash']
-                }
-            },
-            # Spoof user agent to look like a real browser
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'nocheckcertificate': True,
-        }
-
-        if progress_callback:
-            ydl_opts['progress_hooks'] = [ytdlp_progress_hook]
 
         try:
-            logger.info("Creating YoutubeDL instance with format selector")
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                logger.info("Extracting video info...")
-                info = ydl.extract_info(url, download=True)
-                title = info.get('title', 'Unknown')
-                duration = info.get('duration', 0)
-                logger.info(f"Video downloaded successfully: {title} (duration: {duration}s)")
+            response = requests.get(rapidapi_url, headers=headers, params=params, timeout=30)
 
-            # Extract audio using ffmpeg
-            logger.info("Extracting audio from video...")
+            # Handle rate limiting specifically
+            if response.status_code == 429:
+                error_msg = "RapidAPI quota exceeded. Please check your API limits or upgrade your plan."
+                logger.error(error_msg)
+                if progress_callback:
+                    progress_callback(f"Error: {error_msg}")
+                raise Exception(error_msg)
+
+            # Handle other HTTP errors
+            if response.status_code != 200:
+                error_msg = f"RapidAPI error: HTTP {response.status_code}"
+                logger.error(error_msg)
+                raise Exception(error_msg)
+
+            data = response.json()
+
+            # Check for API-level errors
+            if 'error' in data:
+                error_msg = f"RapidAPI error: {data.get('error', 'Unknown error')}"
+                logger.error(error_msg)
+                raise Exception(error_msg)
+
+            if not data.get('videos'):
+                raise Exception("No video formats available from RapidAPI. Video may be unavailable or private.")
+
+            # Get video info - handle both DataFanatic and other API formats
+            title = data.get('title', 'Unknown')
+
+            # Try lengthSeconds first (DataFanatic), then duration (other APIs)
+            duration = data.get('lengthSeconds')
+            if duration is None:
+                duration_str = data.get('duration', '0')
+                duration = int(duration_str) if duration_str and str(duration_str).isdigit() else 0
+            else:
+                duration = int(duration) if duration else 0
+
+            logger.info(f"Video info: {title} (duration: {duration}s)")
+
+            # Check if we got valid data
+            if not title or title == 'Unknown':
+                logger.warning(f"Could not get video title, using video ID: {video_id}")
+                title = f"Video {video_id}"
+
+            # Find best quality MP4 video
+            videos = data.get('videos', [])
+
+            if not videos:
+                raise Exception("No video formats available from RapidAPI")
+
+            # Handle different response formats from RapidAPI
+            if videos and isinstance(videos[0], str):
+                # If videos is a list of strings (URLs), use the first one
+                download_url = videos[0]
+                logger.info(f"Using first available video URL")
+            else:
+                # If videos is a list of objects, find best quality
+                # DataFanatic API uses 'quality' field like '720p', '1080p'
+                valid_videos = [v for v in videos if isinstance(v, dict) and v.get('url')]
+
+                if not valid_videos:
+                    raise Exception("No valid video formats found in API response")
+
+                # Get highest quality video
+                best_video = max(valid_videos, key=lambda v: int(v.get('quality', '0').rstrip('p') or '0'))
+                download_url = best_video['url']
+                logger.info(f"Selected quality: {best_video.get('quality', 'unknown')}")
+
+            if progress_callback:
+                if isinstance(videos[0], str):
+                    progress_callback(f"Downloading video...")
+                else:
+                    progress_callback(f"Downloading video ({best_video.get('quality', 'unknown')})...")
+
+            # Download video file
+            logger.info(f"Downloading from: {download_url[:100]}...")
+            video_response = requests.get(download_url, stream=True, timeout=60)
+            video_response.raise_for_status()
+
+            total_size = int(video_response.headers.get('content-length', 0))
+            downloaded = 0
+
+            with open(video_path, 'wb') as f:
+                for chunk in video_response.iter_content(chunk_size=1024*1024):  # 1MB chunks
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if progress_callback and total_size > 0:
+                            percent = (downloaded / total_size) * 100
+                            progress_callback(f"Downloading... {percent:.1f}% ({downloaded//1024//1024}MB/{total_size//1024//1024}MB)")
+
+            logger.info("Video download complete")
+
+            # Extract audio
+            if progress_callback:
+                progress_callback("Extracting audio...")
+
             self._extract_audio(video_path, audio_path)
             logger.info("Audio extraction complete")
 
@@ -238,19 +171,28 @@ class VideoDownloader:
                 'video_id': video_id
             }
 
+        except requests.Timeout:
+            error_msg = "Request to RapidAPI timed out. Please try again."
+            logger.error(error_msg)
+            raise Exception(error_msg)
+        except requests.RequestException as e:
+            error_msg = f"Network error while contacting RapidAPI: {str(e)}"
+            logger.error(error_msg)
+            raise Exception(error_msg)
         except Exception as e:
-            logger.error(f"Download failed with error: {str(e)}", exc_info=True)
-            raise Exception(f"Failed to download video: {str(e)}")
+            # Re-raise with more context if needed
+            if "quota" in str(e).lower() or "429" in str(e):
+                raise Exception("API quota exceeded. Please check your RapidAPI subscription.")
+            raise
 
-    def _extract_video_id_simple(self, url):
-        """Extract video ID from YouTube URL (simple regex method)"""
-        import re
-
+    def _extract_video_id_from_url(self, url):
+        """Extract video ID from YouTube URL using regex"""
         # Handle various YouTube URL formats
         patterns = [
             r'(?:youtube\.com/watch\?v=|youtu\.be/)([^&\n?#]+)',
             r'youtube\.com/embed/([^&\n?#]+)',
-            r'youtube\.com/v/([^&\n?#]+)'
+            r'youtube\.com/v/([^&\n?#]+)',
+            r'youtube\.com/shorts/([^&\n?#]+)'
         ]
 
         for pattern in patterns:
@@ -258,26 +200,19 @@ class VideoDownloader:
             if match:
                 return match.group(1)
 
-        # Fallback to yt-dlp if regex fails
-        return self._extract_video_id(url)
-
-    def _extract_video_id(self, url):
-        """Extract video ID from YouTube URL"""
-        with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-            info = ydl.extract_info(url, download=False)
-            return info.get('id', 'video')
+        # If no pattern matches, raise error
+        raise ValueError(f"Could not extract video ID from URL: {url}")
 
     def _extract_audio(self, video_path, audio_path):
         """Extract audio from video using ffmpeg"""
         import subprocess
         import logging
+        import shutil
         logger = logging.getLogger(__name__)
 
         logger.info(f"Running ffmpeg to extract audio from {video_path}")
 
         # Find ffmpeg - check Nix path first (Railway), then system PATH
-        import shutil
-
         # Try Nix path first (Railway environment)
         nix_ffmpeg = '/nix/var/nix/profiles/default/bin/ffmpeg'
         if os.path.exists(nix_ffmpeg):
