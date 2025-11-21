@@ -226,10 +226,35 @@ def process_video_task(self, video_id, youtube_url):
         # Update database
         self.db.update_video_status(video_id, 'failed', error_message=error_msg)
 
-        # Retry task if possible
-        if self.request.retries < self.max_retries:
-            logger.info("task_retry", video_id=video_id, retry_count=self.request.retries + 1)
+        # Smart retry logic: Only retry on transient errors
+        # Do NOT retry on permanent failures that waste API quota
+        should_retry = False
+        error_lower = error_msg.lower()
+
+        # Don't retry these permanent failures:
+        non_retriable_errors = [
+            '429',  # Rate limit
+            'too many requests',
+            'quota exceeded',
+            'sign in to confirm',  # Bot detection
+            'invalid api response',  # Bad data from API
+            'not subscribed',  # API subscription issue
+            'authentication failed',
+            'invalid response',
+            'no video formats available'
+        ]
+
+        # Check if error is non-retriable
+        is_non_retriable = any(err in error_lower for err in non_retriable_errors)
+
+        if not is_non_retriable and self.request.retries < self.max_retries:
+            # Only retry on transient errors (network issues, timeouts, etc.)
+            should_retry = True
+            logger.info("task_retry", video_id=video_id, retry_count=self.request.retries + 1, reason="transient_error")
             raise self.retry(exc=exc, countdown=60)
+        else:
+            if is_non_retriable:
+                logger.warning("task_not_retrying", video_id=video_id, reason="non_retriable_error")
 
     finally:
         # Always cleanup temporary files, regardless of success or failure
