@@ -1,7 +1,7 @@
 """
 YouTube Video Downloader Module
 Downloads YouTube videos using YouTube Video FAST Downloader 24/7 API
-Version: 4.0.0 - Switched to FAST API for better reliability
+Version: 4.0.1 - Switched to FAST API for better reliability
 """
 
 import os
