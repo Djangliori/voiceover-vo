@@ -80,15 +80,28 @@ class VideoDownloader:
         if not data.get('videos'):
             raise Exception("No video formats available from RapidAPI")
 
-        # Get video info
+        # Get video info - handle both DataFanatic and other API formats
         title = data.get('title', 'Unknown')
-        duration_str = data.get('duration', '0')
-        duration = int(duration_str) if duration_str.isdigit() else 0
+
+        # Try lengthSeconds first (DataFanatic), then duration (other APIs)
+        duration = data.get('lengthSeconds')
+        if duration is None:
+            duration_str = data.get('duration', '0')
+            duration = int(duration_str) if duration_str and str(duration_str).isdigit() else 0
+        else:
+            duration = int(duration) if duration else 0
 
         logger.info(f"Video info: {title} (duration: {duration}s)")
 
+        # Check if we got valid data
+        if not title or title == 'Unknown' or duration == 0:
+            raise Exception(f"Invalid API response - title: {title}, duration: {duration}")
+
         # Find best quality MP4 video
-        videos = data['videos']
+        videos = data.get('videos', [])
+
+        if not videos:
+            raise Exception("No video formats available from RapidAPI")
 
         # Handle different response formats from RapidAPI
         if videos and isinstance(videos[0], str):
@@ -97,15 +110,14 @@ class VideoDownloader:
             logger.info(f"Using first available video URL")
         else:
             # If videos is a list of objects, find best quality
-            mp4_videos = [v for v in videos if isinstance(v, dict) and v.get('extension') == 'mp4']
-            if not mp4_videos:
-                mp4_videos = [v for v in videos if isinstance(v, dict)]
+            # DataFanatic API uses 'quality' field like '720p', '1080p'
+            valid_videos = [v for v in videos if isinstance(v, dict) and v.get('url')]
 
-            if not mp4_videos:
+            if not valid_videos:
                 raise Exception("No valid video formats found in API response")
 
             # Get highest quality video
-            best_video = max(mp4_videos, key=lambda v: int(v.get('quality', '0').rstrip('p') or '0'))
+            best_video = max(valid_videos, key=lambda v: int(v.get('quality', '0').rstrip('p') or '0'))
             download_url = best_video['url']
             logger.info(f"Selected quality: {best_video.get('quality', 'unknown')}")
 
