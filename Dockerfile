@@ -19,6 +19,3 @@ RUN pip install --no-cache-dir --upgrade pip wheel && \
 
 # Copy application code
 COPY . .
-
-# Default command (will be overridden by Railway for different services)
-CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "2", "--threads", "4", "--timeout", "600", "app:app"]
