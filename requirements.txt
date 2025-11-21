@@ -9,6 +9,9 @@ redis==5.0.1
 # OpenAI API (for AI-powered translation and transcription)
 openai==0.28.1  # Temporarily reverted for compatibility
 
+# AssemblyAI for advanced transcription with speaker diarization
+assemblyai==0.33.0
+
 # HTTP clients
 httpx==0.24.1  # Pin for OpenAI v0.28.1 compatibility
 requests>=2.31.0  # Used for RapidAPI calls

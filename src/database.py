@@ -1,13 +1,14 @@
 """
 Database Module
-Tracks processed videos and their metadata
+Tracks processed videos, users, and usage
 """
 
 import os
 from datetime import datetime
-from sqlalchemy import create_engine, Column, String, DateTime, Integer, Boolean
+from sqlalchemy import create_engine, Column, String, DateTime, Integer, Boolean, Float, ForeignKey, Text
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.orm import sessionmaker, scoped_session, relationship
+from werkzeug.security import generate_password_hash, check_password_hash
 from src.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -49,6 +50,127 @@ class Video(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'completed_at': self.completed_at.isoformat() if self.completed_at else None,
             'view_count': self.view_count
+        }
+
+
+class Tier(Base):
+    """Subscription tier model"""
+    __tablename__ = 'tiers'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(50), unique=True, nullable=False)  # free, basic, pro, unlimited
+    display_name = Column(String(100), nullable=False)  # "Free", "Basic", "Pro", "Unlimited"
+    minutes_per_month = Column(Integer, nullable=False)  # -1 for unlimited
+    price_monthly = Column(Float, default=0.0)
+    description = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationship
+    users = relationship("User", back_populates="tier")
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'display_name': self.display_name,
+            'minutes_per_month': self.minutes_per_month,
+            'price_monthly': self.price_monthly,
+            'description': self.description,
+            'is_active': self.is_active
+        }
+
+
+class User(Base):
+    """User model for authentication and usage tracking"""
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    name = Column(String(100))
+    is_admin = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True)
+
+    # Tier relationship
+    tier_id = Column(Integer, ForeignKey('tiers.id'), nullable=False)
+    tier = relationship("Tier", back_populates="users")
+
+    # Usage tracking
+    minutes_used_this_month = Column(Float, default=0.0)
+    usage_reset_date = Column(DateTime, default=datetime.utcnow)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_login = Column(DateTime)
+
+    # Relationship to videos processed by this user
+    videos = relationship("UserVideo", back_populates="user")
+
+    def set_password(self, password):
+        """Hash and set password"""
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        """Verify password"""
+        return check_password_hash(self.password_hash, password)
+
+    def get_remaining_minutes(self):
+        """Get remaining minutes for this month"""
+        if self.tier.minutes_per_month == -1:
+            return float('inf')  # Unlimited
+        return max(0, self.tier.minutes_per_month - self.minutes_used_this_month)
+
+    def can_process_video(self, video_duration_seconds):
+        """Check if user has enough minutes to process a video"""
+        video_minutes = video_duration_seconds / 60
+        return self.get_remaining_minutes() >= video_minutes
+
+    def add_usage(self, minutes):
+        """Add usage minutes"""
+        self.minutes_used_this_month += minutes
+
+    def reset_monthly_usage(self):
+        """Reset usage for new month"""
+        self.minutes_used_this_month = 0.0
+        self.usage_reset_date = datetime.utcnow()
+
+    def to_dict(self, include_sensitive=False):
+        data = {
+            'id': self.id,
+            'email': self.email,
+            'name': self.name,
+            'is_admin': self.is_admin,
+            'is_active': self.is_active,
+            'tier': self.tier.to_dict() if self.tier else None,
+            'minutes_used_this_month': self.minutes_used_this_month,
+            'minutes_remaining': self.get_remaining_minutes() if self.tier else 0,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_login': self.last_login.isoformat() if self.last_login else None
+        }
+        return data
+
+
+class UserVideo(Base):
+    """Track which user processed which video"""
+    __tablename__ = 'user_videos'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    video_id = Column(String(20), ForeignKey('videos.video_id'), nullable=False)
+    minutes_charged = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    user = relationship("User", back_populates="videos")
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'video_id': self.video_id,
+            'minutes_charged': self.minutes_charged,
+            'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
 
@@ -271,5 +393,265 @@ class Database:
                 .limit(limit)\
                 .all()
             return videos
+        finally:
+            self.close_session(session)
+
+    # ==================== Tier Management ====================
+
+    def init_default_tiers(self):
+        """Initialize default subscription tiers"""
+        session = self.get_session()
+        try:
+            # Check if tiers already exist
+            existing = session.query(Tier).first()
+            if existing:
+                logger.info("Tiers already initialized")
+                return
+
+            default_tiers = [
+                Tier(
+                    name='free',
+                    display_name='Free',
+                    minutes_per_month=10,
+                    price_monthly=0.0,
+                    description='10 minutes per month for free'
+                ),
+                Tier(
+                    name='basic',
+                    display_name='Basic',
+                    minutes_per_month=60,
+                    price_monthly=9.99,
+                    description='60 minutes per month'
+                ),
+                Tier(
+                    name='pro',
+                    display_name='Pro',
+                    minutes_per_month=300,
+                    price_monthly=29.99,
+                    description='300 minutes per month'
+                ),
+                Tier(
+                    name='unlimited',
+                    display_name='Unlimited',
+                    minutes_per_month=-1,
+                    price_monthly=99.99,
+                    description='Unlimited minutes'
+                )
+            ]
+
+            for tier in default_tiers:
+                session.add(tier)
+
+            session.commit()
+            logger.info("Default tiers initialized successfully")
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to initialize tiers: {e}")
+            raise
+        finally:
+            self.close_session(session)
+
+    def get_tier_by_name(self, name):
+        """Get tier by name"""
+        session = self.get_session()
+        try:
+            tier = session.query(Tier).filter_by(name=name).first()
+            if tier:
+                session.expunge(tier)
+            return tier
+        finally:
+            self.close_session(session)
+
+    def get_all_tiers(self):
+        """Get all active tiers"""
+        session = self.get_session()
+        try:
+            tiers = session.query(Tier).filter_by(is_active=True).all()
+            for tier in tiers:
+                session.expunge(tier)
+            return tiers
+        finally:
+            self.close_session(session)
+
+    # ==================== User Management ====================
+
+    def create_user(self, email, password, name=None, tier_name='free'):
+        """Create a new user"""
+        session = self.get_session()
+        try:
+            # Check if user already exists
+            existing = session.query(User).filter_by(email=email).first()
+            if existing:
+                raise ValueError("User with this email already exists")
+
+            # Get the tier
+            tier = session.query(Tier).filter_by(name=tier_name).first()
+            if not tier:
+                # Initialize tiers if not exists
+                self.init_default_tiers()
+                tier = session.query(Tier).filter_by(name=tier_name).first()
+
+            user = User(
+                email=email,
+                name=name,
+                tier_id=tier.id
+            )
+            user.set_password(password)
+
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            session.expunge(user)
+
+            logger.info(f"User created: {email}")
+            return user
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            self.close_session(session)
+
+    def get_user_by_email(self, email):
+        """Get user by email"""
+        session = self.get_session()
+        try:
+            user = session.query(User).filter_by(email=email).first()
+            if user:
+                # Eagerly load tier
+                _ = user.tier
+                session.expunge(user)
+            return user
+        finally:
+            self.close_session(session)
+
+    def get_user_by_id(self, user_id):
+        """Get user by ID"""
+        session = self.get_session()
+        try:
+            user = session.query(User).filter_by(id=user_id).first()
+            if user:
+                _ = user.tier
+                session.expunge(user)
+            return user
+        finally:
+            self.close_session(session)
+
+    def authenticate_user(self, email, password):
+        """Authenticate user and update last login"""
+        session = self.get_session()
+        try:
+            user = session.query(User).filter_by(email=email, is_active=True).first()
+            if user and user.check_password(password):
+                user.last_login = datetime.utcnow()
+                session.commit()
+                _ = user.tier
+                session.expunge(user)
+                return user
+            return None
+        finally:
+            self.close_session(session)
+
+    def update_user_tier(self, user_id, tier_name):
+        """Update user's subscription tier"""
+        session = self.get_session()
+        try:
+            user = session.query(User).filter_by(id=user_id).first()
+            tier = session.query(Tier).filter_by(name=tier_name).first()
+
+            if not user:
+                raise ValueError("User not found")
+            if not tier:
+                raise ValueError("Tier not found")
+
+            user.tier_id = tier.id
+            session.commit()
+            logger.info(f"User {user.email} tier updated to {tier_name}")
+            return user
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            self.close_session(session)
+
+    def add_user_usage(self, user_id, minutes):
+        """Add usage minutes to user"""
+        session = self.get_session()
+        try:
+            user = session.query(User).filter_by(id=user_id).first()
+            if user:
+                user.add_usage(minutes)
+                session.commit()
+                return True
+            return False
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            self.close_session(session)
+
+    def get_all_users(self):
+        """Get all users (for admin)"""
+        session = self.get_session()
+        try:
+            users = session.query(User).all()
+            for user in users:
+                _ = user.tier
+                session.expunge(user)
+            return users
+        finally:
+            self.close_session(session)
+
+    def create_admin_user(self, email, password, name=None):
+        """Create an admin user"""
+        session = self.get_session()
+        try:
+            # Get unlimited tier for admin
+            tier = session.query(Tier).filter_by(name='unlimited').first()
+            if not tier:
+                self.init_default_tiers()
+                tier = session.query(Tier).filter_by(name='unlimited').first()
+
+            user = User(
+                email=email,
+                name=name,
+                tier_id=tier.id,
+                is_admin=True
+            )
+            user.set_password(password)
+
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            session.expunge(user)
+
+            logger.info(f"Admin user created: {email}")
+            return user
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            self.close_session(session)
+
+    def record_user_video(self, user_id, video_id, minutes_charged):
+        """Record that a user processed a video"""
+        session = self.get_session()
+        try:
+            user_video = UserVideo(
+                user_id=user_id,
+                video_id=video_id,
+                minutes_charged=minutes_charged
+            )
+            session.add(user_video)
+
+            # Also add to user's usage
+            user = session.query(User).filter_by(id=user_id).first()
+            if user:
+                user.add_usage(minutes_charged)
+
+            session.commit()
+            return user_video
+        except Exception as e:
+            session.rollback()
+            raise
         finally:
             self.close_session(session)

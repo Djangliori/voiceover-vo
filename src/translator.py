@@ -1,35 +1,115 @@
 """
 Translation Module
 Translates text to Georgian using OpenAI GPT-4 for natural, context-aware translations
+Supports both segment-level and paragraph-level translation modes
 """
 
 import os
+from typing import List, Dict, Optional
 import openai
+from src.config import Config
 from src.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 
 class Translator:
-    def __init__(self):
-        """Initialize OpenAI for AI-powered translation"""
+    def __init__(self, use_paragraph_mode: bool = True):
+        """
+        Initialize OpenAI for AI-powered translation
+
+        Args:
+            use_paragraph_mode: Whether to use context-aware paragraph translation
+        """
         api_key = os.getenv('OPENAI_API_KEY')
         if not api_key:
             raise ValueError("OPENAI_API_KEY not found in environment variables")
 
         openai.api_key = api_key
         self.target_language = 'Georgian'
+        self.use_paragraph_mode = use_paragraph_mode
+        self.context_translator = None
 
-    def translate_segments(self, segments, progress_callback=None):
+        # Initialize context-aware translator if in paragraph mode
+        if self.use_paragraph_mode:
+            try:
+                from src.context_translator import ContextAwareTranslator
+                self.context_translator = ContextAwareTranslator()
+                logger.info("Initialized context-aware paragraph translation mode")
+            except ImportError as e:
+                logger.warning(f"Could not initialize paragraph mode, falling back to segment mode: {e}")
+                self.use_paragraph_mode = False
+
+    def translate_segments(self, segments, progress_callback=None, speakers=None):
         """
         Translate text segments to Georgian using GPT-4 for natural translation
 
         Args:
             segments: List of segments with 'text', 'start', 'end'
             progress_callback: Optional callback for progress updates
+            speakers: Optional speaker information for context-aware translation
 
         Returns:
             List of segments with translated text added as 'translated_text'
+        """
+        # Use paragraph mode if available and segments have speaker info
+        if self.use_paragraph_mode and self.context_translator:
+            has_speakers = any('speaker' in seg for seg in segments) or speakers is not None
+            if has_speakers:
+                logger.info("Using context-aware paragraph translation mode")
+                return self._translate_with_context(segments, speakers, progress_callback)
+
+        # Fall back to original segment-based translation
+        logger.info("Using segment-based translation mode")
+        return self._translate_segment_mode(segments, progress_callback)
+
+    def _translate_with_context(
+        self,
+        segments: List[Dict],
+        speakers: Optional[List[Dict]],
+        progress_callback: Optional[callable]
+    ) -> List[Dict]:
+        """
+        Translate using context-aware paragraph mode
+
+        Args:
+            segments: List of segments
+            speakers: Optional speaker information
+            progress_callback: Progress callback
+
+        Returns:
+            Translated segments with context awareness
+        """
+        try:
+            # Use context translator for paragraph-level translation
+            translated = self.context_translator.translate_conversation(
+                segments,
+                speakers,
+                progress_callback
+            )
+
+            # Ensure backward compatibility - add 'translated_text' field
+            for seg in translated:
+                if 'text' in seg and seg.get('translated', False):
+                    seg['translated_text'] = seg['text']
+                    seg['text'] = seg.get('original_text', seg['text'])
+
+            return translated
+
+        except Exception as e:
+            logger.error(f"Context translation failed, falling back to segment mode: {e}")
+            return self._translate_segment_mode(segments, progress_callback)
+
+    def _translate_segment_mode(self, segments, progress_callback=None):
+        """
+        Original segment-based translation (backward compatible)
+
+        Args:
+            segments: List of segments
+            progress_callback: Progress callback
+
+        Returns:
+            Translated segments
         """
         if progress_callback:
             progress_callback(f"AI translating {len(segments)} segments to Georgian...")

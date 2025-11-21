@@ -7,11 +7,11 @@ Supports geyoutube.com URL pattern (like ssyoutube.com)
 import os
 import re
 import threading
-from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for
+from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for, session, g
 from flask_cors import CORS
 from dotenv import load_dotenv
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Load environment variables
 load_dotenv()
@@ -84,7 +84,7 @@ except Exception as e:
     import threading
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, supports_credentials=True)
 
 # Configuration from central config
 app.config['OUTPUT_DIR'] = Config.OUTPUT_DIR
@@ -94,8 +94,26 @@ app.config['MAX_FILE_SIZE'] = Config.MAX_FILE_SIZE
 app.config['MAX_CONCURRENT_JOBS'] = Config.MAX_CONCURRENT_JOBS
 app.config['SECRET_KEY'] = Config.SECRET_KEY
 
+# Session configuration
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('FLASK_ENV') == 'production'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
+
+# Register auth blueprint
+from src.auth import auth_bp, init_admin_user, login_required, get_current_user
+app.register_blueprint(auth_bp)
+
 # Initialize database and storage
 db = Database()
+
+# Initialize default tiers and admin user
+try:
+    db.init_default_tiers()
+    init_admin_user()
+except Exception as e:
+    logger.warning(f"Failed to initialize tiers/admin: {e}")
+
 try:
     storage = R2Storage()
     use_r2 = True
@@ -104,6 +122,22 @@ except Exception as e:
     logger.warning("r2_storage_not_configured", error=str(e))
     storage = None
     use_r2 = False
+
+
+@app.before_request
+def load_logged_in_user():
+    """Load user before each request"""
+    user_id = session.get('user_id')
+    if user_id is None:
+        g.user = None
+    else:
+        g.user = db.get_user_by_id(user_id)
+
+
+@app.context_processor
+def inject_user():
+    """Inject user into all templates"""
+    return dict(current_user=g.get('user', None))
 
 # Store Celery task IDs mapped to video IDs (Celery mode)
 task_id_map = {}  # video_id -> celery_task_id
@@ -303,6 +337,33 @@ def popular():
     return render_template('library.html',
                          videos=[v.to_dict() for v in popular_videos],
                          title="Popular Videos")
+
+
+@app.route('/login')
+def login_page():
+    """Login page"""
+    if g.user:
+        return redirect(url_for('index'))
+    return render_template('login.html')
+
+
+@app.route('/register')
+def register_page():
+    """Registration page"""
+    if g.user:
+        return redirect(url_for('index'))
+    return render_template('register.html')
+
+
+@app.route('/admin')
+def admin_panel():
+    """Admin panel"""
+    if not g.user or not g.user.is_admin:
+        return redirect(url_for('login_page'))
+
+    users = db.get_all_users()
+    tiers = db.get_all_tiers()
+    return render_template('admin.html', users=users, tiers=tiers)
 
 
 @app.route('/process', methods=['POST'])

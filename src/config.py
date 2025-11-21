@@ -18,6 +18,7 @@ class Config:
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
     ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
     RAPIDAPI_KEY = os.getenv('RAPIDAPI_KEY')
+    ASSEMBLYAI_API_KEY = os.getenv('ASSEMBLYAI_API_KEY')
 
     # Flask Configuration
     FLASK_PORT = int(os.getenv('FLASK_PORT', 5001))
@@ -33,6 +34,12 @@ class Config:
     ORIGINAL_AUDIO_VOLUME = float(os.getenv('ORIGINAL_AUDIO_VOLUME', 0.05))
     VOICEOVER_VOLUME = float(os.getenv('VOICEOVER_VOLUME', 1.0))
     WHISPER_MODEL = os.getenv('WHISPER_MODEL', 'base')
+
+    # Transcription Settings
+    TRANSCRIPTION_PROVIDER = os.getenv('TRANSCRIPTION_PROVIDER', 'assemblyai')  # 'assemblyai' or 'whisper'
+    ENABLE_SPEAKER_DIARIZATION = os.getenv('ENABLE_SPEAKER_DIARIZATION', 'true').lower() == 'true'
+    MAX_SPEAKERS = int(os.getenv('MAX_SPEAKERS', 10))  # Maximum speakers to detect
+    SPEAKER_MERGE_PAUSE = float(os.getenv('SPEAKER_MERGE_PAUSE', 1.5))  # Seconds between segments to merge
 
     # Directories
     OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'output')
@@ -61,6 +68,7 @@ class Config:
     ELEVENLABS_TIMEOUT = int(os.getenv('ELEVENLABS_TIMEOUT', 30))
     RAPIDAPI_TIMEOUT = int(os.getenv('RAPIDAPI_TIMEOUT', 30))
     DOWNLOAD_TIMEOUT = int(os.getenv('DOWNLOAD_TIMEOUT', 60))
+    ASSEMBLYAI_TIMEOUT = int(os.getenv('ASSEMBLYAI_TIMEOUT', 300))  # 5 minutes for long transcriptions
 
     # Rate Limiting
     API_RATE_LIMIT = int(os.getenv('API_RATE_LIMIT', 100))  # requests per minute
@@ -76,6 +84,10 @@ class Config:
             errors.append("OPENAI_API_KEY is required")
         if not cls.ELEVENLABS_API_KEY:
             errors.append("ELEVENLABS_API_KEY is required")
+
+        # Check transcription provider API key
+        if cls.TRANSCRIPTION_PROVIDER == 'assemblyai' and not cls.ASSEMBLYAI_API_KEY:
+            errors.append("ASSEMBLYAI_API_KEY is required when using AssemblyAI transcription")
 
         # Validate numeric ranges
         if not 0 <= cls.ORIGINAL_AUDIO_VOLUME <= 1:

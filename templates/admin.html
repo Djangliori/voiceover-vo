@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - Georgian Voiceover</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .admin-container {
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 20px;
+        }
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+        .admin-header h2 {
+            color: #333;
+        }
+        .btn-logout {
+            padding: 10px 20px;
+            background: #e53e3e;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn-logout:hover {
+            background: #c53030;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .stat-card h3 {
+            font-size: 14px;
+            color: #666;
+            margin: 0 0 10px 0;
+        }
+        .stat-card .value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #333;
+        }
+        .section {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            overflow: hidden;
+        }
+        .section-header {
+            padding: 20px;
+            background: #f7f7f7;
+            border-bottom: 1px solid #eee;
+        }
+        .section-header h3 {
+            margin: 0;
+            color: #333;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background: #f9f9f9;
+            font-weight: 600;
+            color: #555;
+        }
+        tr:hover {
+            background: #f5f5f5;
+        }
+        .tier-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .tier-free { background: #e2e8f0; color: #4a5568; }
+        .tier-basic { background: #c6f6d5; color: #276749; }
+        .tier-pro { background: #bee3f8; color: #2b6cb0; }
+        .tier-unlimited { background: #faf089; color: #975a16; }
+        .admin-badge {
+            background: #e53e3e;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin-left: 5px;
+        }
+        select.tier-select {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .btn-update {
+            padding: 6px 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .btn-update:hover {
+            background: #5a67d8;
+        }
+        .back-link {
+            display: inline-block;
+            color: #667eea;
+            text-decoration: none;
+            margin-bottom: 20px;
+        }
+        .success-toast, .error-toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 4px;
+            color: white;
+            display: none;
+            z-index: 1000;
+        }
+        .success-toast { background: #48bb78; }
+        .error-toast { background: #e53e3e; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="admin-container">
+            <a href="{{ url_for('index') }}" class="back-link">Back to App</a>
+
+            <div class="admin-header">
+                <h2>Admin Panel</h2>
+                <button class="btn-logout" onclick="logout()">Logout</button>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3>Total Users</h3>
+                    <div class="value">{{ users|length }}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Free Users</h3>
+                    <div class="value">{{ users|selectattr('tier.name', 'equalto', 'free')|list|length }}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Paid Users</h3>
+                    <div class="value">{{ users|rejectattr('tier.name', 'equalto', 'free')|list|length }}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Active Tiers</h3>
+                    <div class="value">{{ tiers|length }}</div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">
+                    <h3>Users</h3>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Email</th>
+                            <th>Name</th>
+                            <th>Tier</th>
+                            <th>Minutes Used</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in users %}
+                        <tr>
+                            <td>{{ user.id }}</td>
+                            <td>
+                                {{ user.email }}
+                                {% if user.is_admin %}<span class="admin-badge">ADMIN</span>{% endif %}
+                            </td>
+                            <td>{{ user.name or '-' }}</td>
+                            <td>
+                                <span class="tier-badge tier-{{ user.tier.name }}">
+                                    {{ user.tier.display_name }}
+                                </span>
+                            </td>
+                            <td>
+                                {{ "%.1f"|format(user.minutes_used_this_month) }} /
+                                {% if user.tier.minutes_per_month == -1 %}
+                                    Unlimited
+                                {% else %}
+                                    {{ user.tier.minutes_per_month }}
+                                {% endif %}
+                            </td>
+                            <td>{{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '-' }}</td>
+                            <td>
+                                <select class="tier-select" id="tier-{{ user.id }}">
+                                    {% for tier in tiers %}
+                                    <option value="{{ tier.name }}" {% if tier.name == user.tier.name %}selected{% endif %}>
+                                        {{ tier.display_name }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <button class="btn-update" onclick="updateTier({{ user.id }})">Update</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="section">
+                <div class="section-header">
+                    <h3>Subscription Tiers</h3>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Display Name</th>
+                            <th>Minutes/Month</th>
+                            <th>Price</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for tier in tiers %}
+                        <tr>
+                            <td>{{ tier.name }}</td>
+                            <td>{{ tier.display_name }}</td>
+                            <td>
+                                {% if tier.minutes_per_month == -1 %}
+                                    Unlimited
+                                {% else %}
+                                    {{ tier.minutes_per_month }}
+                                {% endif %}
+                            </td>
+                            <td>${{ "%.2f"|format(tier.price_monthly) }}</td>
+                            <td>{{ tier.description }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="success-toast" class="success-toast">Tier updated successfully!</div>
+    <div id="error-toast" class="error-toast">Failed to update tier</div>
+
+    <script>
+        async function updateTier(userId) {
+            const tierSelect = document.getElementById(`tier-${userId}`);
+            const tierName = tierSelect.value;
+
+            try {
+                const response = await fetch(`/auth/admin/users/${userId}/tier`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tier: tierName })
+                });
+
+                if (response.ok) {
+                    showToast('success-toast');
+                    // Reload page to show updated data
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showToast('error-toast');
+                }
+            } catch (err) {
+                showToast('error-toast');
+            }
+        }
+
+        function showToast(id) {
+            const toast = document.getElementById(id);
+            toast.style.display = 'block';
+            setTimeout(() => {
+                toast.style.display = 'none';
+            }, 3000);
+        }
+
+        async function logout() {
+            await fetch('/auth/logout', { method: 'POST' });
+            window.location.href = '/';
+        }
+    </script>
+</body>
+</html>

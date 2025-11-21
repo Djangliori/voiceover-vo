@@ -18,6 +18,7 @@ from src.audio_mixer import AudioMixer
 from src.video_processor import VideoProcessor
 from src.database import Database, Video
 from src.storage import R2Storage
+from src.config import Config
 from src.logging_config import get_logger
 
 load_dotenv()
@@ -173,13 +174,22 @@ def process_video_task(self, video_id, youtube_url):
         update_progress("🎵 Extracting audio from video...", 21)
         logger.info(f"Starting transcription for {video_id}")
 
-        update_progress("🎤 Starting speech recognition with OpenAI Whisper...", 23)
+        update_progress("🎤 Starting speech recognition...", 23)
         try:
             segments = transcriber.transcribe(
                 video_info['audio_path'],
                 progress_callback=lambda msg: update_progress(f"🎤 {msg}", 28)
             )
-            segments = transcriber.merge_short_segments(segments)
+
+            # Check if we have speaker diarization
+            speakers = None
+            if transcriber.has_speaker_diarization():
+                speakers = transcriber.get_speakers()
+                update_progress(f"✅ Transcribed with {len(speakers)} speakers detected", 33)
+                logger.info(f"Speaker diarization: {len(speakers)} speakers detected")
+            else:
+                segments = transcriber.merge_short_segments(segments)
+
             update_progress(f"✅ Transcribed speech into {len(segments)} segments", 35)
             logger.info(f"Transcription complete for {video_id}: {len(segments)} segments")
         except Exception as e:
@@ -198,26 +208,70 @@ def process_video_task(self, video_id, youtube_url):
                 # If translator sends idx, total, text - handle it
                 update_progress(f"🌐 {message}", 40)
 
+        # Pass speaker information if available for context-aware translation
         translated_segments = translator.translate_segments(
             segments,
-            progress_callback=translation_progress
+            progress_callback=translation_progress,
+            speakers=speakers  # Pass speaker info for context-aware translation
         )
         update_progress(f"✅ Translated all {len(translated_segments)} segments to Georgian", 50)
 
         # Step 4: Generate Georgian voiceover (50-70%)
-        update_progress("🎙️ Starting Georgian voice synthesis with ElevenLabs...", 51)
-        def tts_progress(message):
-            # Handle simple message format from TTS
-            if isinstance(message, str):
-                update_progress(f"🎙️ {message}", 60)
-            else:
-                update_progress(f"🎙️ {message}", 60)
+        # Check if we have multiple speakers for multi-voice synthesis
+        if speakers and len(speakers) > 1:
+            update_progress(f"🎙️ Starting multi-voice synthesis for {len(speakers)} speakers...", 51)
 
-        voiceover_segments = tts.generate_voiceover(
-            translated_segments,
-            temp_dir=temp_dir,
-            progress_callback=tts_progress
-        )
+            # Initialize voice manager
+            from src.voice_manager import VoiceManager
+            voice_manager = VoiceManager(provider=Config.TTS_PROVIDER)
+
+            # Assign voices to speakers
+            voice_assignments = voice_manager.assign_voices_to_speakers(
+                speakers,
+                segments=translated_segments,
+                auto_detect_gender=True
+            )
+
+            # Log voice assignments
+            for speaker_id, voice in voice_assignments.items():
+                speaker_label = next((s['label'] for s in speakers if s['id'] == speaker_id), speaker_id)
+                logger.info(f"Voice assignment: {speaker_label} -> {voice.name}")
+
+            # Prepare segments with voice assignments
+            voiced_segments = voice_manager.prepare_segments_for_multivoice(
+                translated_segments,
+                voice_assignments
+            )
+
+            def tts_progress(message):
+                if isinstance(message, str):
+                    update_progress(f"🎙️ {message}", 60)
+                else:
+                    update_progress(f"🎙️ {message}", 60)
+
+            # Generate voiceover with multiple voices
+            voiceover_segments = voice_manager.generate_voiceover_multivoice(
+                tts,
+                voiced_segments,
+                temp_dir=temp_dir,
+                progress_callback=tts_progress
+            )
+        else:
+            # Single speaker or no speaker info - use default voice
+            update_progress("🎙️ Starting Georgian voice synthesis...", 51)
+
+            def tts_progress(message):
+                if isinstance(message, str):
+                    update_progress(f"🎙️ {message}", 60)
+                else:
+                    update_progress(f"🎙️ {message}", 60)
+
+            voiceover_segments = tts.generate_voiceover(
+                translated_segments,
+                temp_dir=temp_dir,
+                progress_callback=tts_progress
+            )
+
         update_progress(f"✅ Generated {len(voiceover_segments)} Georgian voiceover clips", 70)
 
         # Step 5: Mix audio (70-85%)

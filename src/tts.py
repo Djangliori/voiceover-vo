@@ -9,6 +9,9 @@ import ffmpeg
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from elevenlabs import ElevenLabs
 from pathlib import Path
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class TextToSpeech:
@@ -162,9 +165,26 @@ class TextToSpeech:
 
     def set_voice(self, voice_id):
         """
-        Change the voice
+        Change the voice dynamically for multi-speaker support
 
         Args:
             voice_id: ElevenLabs voice ID
         """
-        self.voice_id = voice_id
+        from src.voice_profiles import ELEVENLABS_VOICES
+
+        # Validate voice ID exists
+        valid_voice = False
+        voice_name = voice_id  # Default to ID if not found
+
+        for voice in ELEVENLABS_VOICES.values():
+            if voice.id == voice_id:
+                valid_voice = True
+                voice_name = voice.name
+                break
+
+        if valid_voice:
+            self.voice_id = voice_id
+            logger.info(f"ElevenLabs voice switched to: {voice_name} ({voice_id})")
+        else:
+            logger.warning(f"Unknown ElevenLabs voice ID: {voice_id}, using default")
+            # Keep current voice_id unchanged

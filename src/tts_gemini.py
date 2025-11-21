@@ -16,6 +16,10 @@ from pathlib import Path
 from google.cloud import texttospeech
 from google.oauth2 import service_account
 
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 class GeminiTextToSpeech:
     """Text-to-Speech using Google Gemini TTS API"""
@@ -239,12 +243,34 @@ class GeminiTextToSpeech:
 
     def set_voice(self, voice_name):
         """
-        Change the voice
+        Change the voice dynamically for multi-speaker support
 
         Args:
             voice_name: Gemini voice name (e.g., 'Achernar', 'Charon', 'Kore')
         """
-        self.voice_name = voice_name
+        from src.voice_profiles import GEMINI_VOICES, GEMINI_ALL_VOICES
+
+        # Validate voice name exists
+        valid_voice = False
+
+        # Check if it's in our curated list
+        for voice in GEMINI_VOICES.values():
+            if voice.id == voice_name:
+                valid_voice = True
+                break
+
+        # Also check against complete list
+        if not valid_voice:
+            all_voices = GEMINI_ALL_VOICES.get('male', []) + GEMINI_ALL_VOICES.get('female', [])
+            if voice_name in all_voices:
+                valid_voice = True
+
+        if valid_voice:
+            self.voice_name = voice_name
+            logger.info(f"Gemini TTS voice switched to: {voice_name}")
+        else:
+            logger.warning(f"Unknown Gemini voice name: {voice_name}, using current: {self.voice_name}")
+            # Keep current voice_name unchanged
 
     def set_prompt(self, prompt):
         """
