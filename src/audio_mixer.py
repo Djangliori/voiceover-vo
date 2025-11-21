@@ -1,11 +1,12 @@
 """
 Audio Mixing Module
 Mixes original audio with Georgian voiceover, lowering original volume during speech
-Uses pydub for reliable audio processing
+Uses pydub for audio processing - with manual sample mixing to avoid overlay issues
 """
 
 import os
 import math
+import array
 from pathlib import Path
 from pydub import AudioSegment
 from src.logging_config import get_logger
@@ -27,22 +28,11 @@ class AudioMixer:
 
     def mix_audio(self, original_audio_path, voiceover_segments, output_path, progress_callback=None):
         """
-        Mix original audio with Georgian voiceover using pydub
+        Mix original audio with Georgian voiceover.
 
-        Two-step process:
-        1. Build a single voiceover track by placing segments at their timestamps
-           (NO overlay, NO mixing - just concatenation with silence gaps)
-        2. Overlay the complete voiceover track onto the lowered original audio
-           (ONE single overlay operation)
-
-        Args:
-            original_audio_path: Path to original audio WAV file
-            voiceover_segments: List of segments with 'audio_path', 'start', 'end'
-            output_path: Path for output mixed audio file
-            progress_callback: Optional callback for progress updates
-
-        Returns:
-            Path to mixed audio file
+        Process:
+        1. Build ONE voiceover track by concatenating segments with silence gaps
+        2. Mix the two tracks by adding their samples together (no pydub overlay)
         """
 
         # ============================================================
@@ -56,7 +46,7 @@ class AudioMixer:
         original = original.set_frame_rate(44100).set_channels(1)
         duration_ms = len(original)
 
-        logger.info(f"Original audio: {duration_ms}ms, {original.frame_rate}Hz, {original.channels} channels")
+        logger.info(f"Original audio: {duration_ms}ms")
 
         # Lower the original audio volume
         if self.original_volume > 0:
@@ -74,8 +64,7 @@ class AudioMixer:
             return output_path
 
         # ============================================================
-        # STEP 2: Build ONE voiceover track
-        #         NO overlay, NO mixing here - just place audio on timeline
+        # STEP 2: Build ONE voiceover track (no mixing, just placement)
         # ============================================================
 
         if progress_callback:
@@ -90,13 +79,13 @@ class AudioMixer:
         logger.info(f"Voiceover track: {len(voiceover_track)}ms")
 
         # ============================================================
-        # STEP 3: ONE overlay operation - voiceover onto original
+        # STEP 3: Mix by adding samples directly (NOT using pydub overlay)
         # ============================================================
 
         if progress_callback:
-            progress_callback("Overlaying voiceover onto original...")
+            progress_callback("Mixing audio tracks...")
 
-        final_mix = original_lowered.overlay(voiceover_track)
+        final_mix = self._mix_two_tracks(original_lowered, voiceover_track)
 
         if progress_callback:
             progress_callback("Exporting final mix...")
@@ -113,22 +102,7 @@ class AudioMixer:
     def _build_voiceover_track(self, voiceover_segments, total_duration_ms, progress_callback=None):
         """
         Build a single voiceover track by placing segments at their timestamps.
-
-        This method does NOT use overlay or mixing. It simply:
-        1. Creates silence for the gap before each segment
-        2. Appends the voiceover segment
-        3. Repeats until all segments are placed
-        4. Pads with silence at the end
-
-        The result is ONE audio track with all voiceovers placed at correct times.
-
-        Args:
-            voiceover_segments: List of segments with 'audio_path' and 'start'
-            total_duration_ms: Total duration the track should be
-            progress_callback: Optional callback for progress updates
-
-        Returns:
-            AudioSegment containing all voiceovers placed on timeline
+        NO overlay, NO mixing - just concatenation.
         """
 
         logger.info(f"Building voiceover track from {len(voiceover_segments)} segments")
@@ -136,10 +110,8 @@ class AudioMixer:
         # Sort by start time
         sorted_segments = sorted(voiceover_segments, key=lambda s: s['start'])
 
-        # We'll build the track by simple concatenation:
-        # [silence][segment1][silence][segment2][silence]...[padding]
-
-        pieces = []  # List of AudioSegment pieces to concatenate at the end
+        # Build the track by concatenation
+        pieces = []
         current_time_ms = 0
 
         for i, segment in enumerate(sorted_segments):
@@ -155,39 +127,95 @@ class AudioMixer:
                 vo_volume_db = 20 * math.log10(self.voiceover_volume)
                 clip = clip + vo_volume_db
 
-            # Add silence gap before this segment (if needed)
+            # Add silence gap before this segment
             if start_ms > current_time_ms:
                 gap_duration = start_ms - current_time_ms
                 silence = AudioSegment.silent(duration=gap_duration, frame_rate=44100)
                 silence = silence.set_channels(1)
                 pieces.append(silence)
                 current_time_ms = start_ms
-                logger.debug(f"Added {gap_duration}ms silence gap before segment {i}")
 
             # Add the voiceover clip
             pieces.append(clip)
             current_time_ms += len(clip)
-            logger.debug(f"Added segment {i} at {start_ms}ms (duration: {len(clip)}ms)")
 
             if progress_callback and (i + 1) % 5 == 0:
-                progress_callback(f"Placed {i + 1}/{len(sorted_segments)} voiceover segments")
+                progress_callback(f"Placed {i + 1}/{len(sorted_segments)} segments")
 
-        # Add silence padding at the end if needed
+        # Add silence padding at the end
         if current_time_ms < total_duration_ms:
             end_padding = total_duration_ms - current_time_ms
             silence = AudioSegment.silent(duration=end_padding, frame_rate=44100)
             silence = silence.set_channels(1)
             pieces.append(silence)
-            logger.debug(f"Added {end_padding}ms silence padding at end")
 
-        # Now concatenate all pieces into one track
-        # This is a simple sum operation, no mixing
-        logger.info(f"Concatenating {len(pieces)} pieces into voiceover track")
+        # Concatenate all pieces by joining raw bytes
+        # This is the most direct way - no pydub operations that could affect volume
+        logger.info(f"Concatenating {len(pieces)} pieces")
 
-        voiceover_track = AudioSegment.empty()
+        # Collect all raw bytes
+        all_bytes = b''
         for piece in pieces:
-            voiceover_track = voiceover_track + piece
+            all_bytes += piece.raw_data
+
+        # Create single AudioSegment from concatenated bytes
+        voiceover_track = AudioSegment(
+            data=all_bytes,
+            sample_width=2,  # 16-bit
+            frame_rate=44100,
+            channels=1
+        )
 
         logger.info(f"Voiceover track complete: {len(voiceover_track)}ms")
 
         return voiceover_track
+
+    def _mix_two_tracks(self, track1, track2):
+        """
+        Mix two audio tracks by directly adding their samples.
+        This avoids any potential issues with pydub's overlay() method.
+
+        Both tracks must have the same sample rate and channels.
+        """
+
+        # Ensure same length
+        len1 = len(track1)
+        len2 = len(track2)
+
+        if len1 > len2:
+            # Pad track2
+            padding = AudioSegment.silent(duration=len1 - len2, frame_rate=44100)
+            padding = padding.set_channels(1)
+            track2 = track2 + padding
+        elif len2 > len1:
+            # Pad track1
+            padding = AudioSegment.silent(duration=len2 - len1, frame_rate=44100)
+            padding = padding.set_channels(1)
+            track1 = track1 + padding
+
+        # Get raw sample data
+        samples1 = array.array('h', track1.raw_data)
+        samples2 = array.array('h', track2.raw_data)
+
+        # Add samples together with clipping
+        mixed_samples = array.array('h')
+        for s1, s2 in zip(samples1, samples2):
+            mixed = s1 + s2
+            # Clip to 16-bit range
+            if mixed > 32767:
+                mixed = 32767
+            elif mixed < -32768:
+                mixed = -32768
+            mixed_samples.append(mixed)
+
+        # Create new AudioSegment from mixed samples
+        mixed_audio = AudioSegment(
+            data=mixed_samples.tobytes(),
+            sample_width=2,  # 16-bit = 2 bytes
+            frame_rate=44100,
+            channels=1
+        )
+
+        logger.info(f"Mixed two tracks: {len(mixed_audio)}ms")
+
+        return mixed_audio
