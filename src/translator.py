@@ -4,17 +4,20 @@ Translates text to Georgian using OpenAI GPT-4 for natural, context-aware transl
 """
 
 import os
-import openai
+from openai import OpenAI
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class Translator:
     def __init__(self):
-        """Initialize OpenAI for AI-powered translation"""
+        """Initialize OpenAI client for AI-powered translation (v1.x)"""
         api_key = os.getenv('OPENAI_API_KEY')
         if not api_key:
             raise ValueError("OPENAI_API_KEY not found in environment variables")
 
-        openai.api_key = api_key
+        self.client = OpenAI(api_key=api_key)
         self.target_language = 'Georgian'
 
     def translate_segments(self, segments, progress_callback=None):
