@@ -46,15 +46,38 @@ from src.validators import (
 try:
     from src.tasks import process_video_task
     import redis
+    import time
 
-    # Try to connect to Redis to verify it's actually available
+    # Try to connect to Redis with retries (Railway needs time for internal DNS)
     redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-    # Increased timeout for Railway's internal network
-    r = redis.from_url(redis_url, socket_connect_timeout=5, socket_keepalive=True)
-    r.ping()
+    max_retries = 3
+    retry_delay = 2
 
-    USE_CELERY = True
-    logger.info("celery_available", status="using celery for task processing", redis_url=redis_url)
+    for attempt in range(max_retries):
+        try:
+            # Increased timeout and keepalive for Railway's internal network
+            r = redis.from_url(redis_url,
+                             socket_connect_timeout=10,
+                             socket_keepalive=True,
+                             socket_keepalive_options={
+                                 1: 1,  # TCP_KEEPIDLE
+                                 2: 1,  # TCP_KEEPINTVL
+                                 3: 5,  # TCP_KEEPCNT
+                             })
+            r.ping()
+            USE_CELERY = True
+            logger.info("celery_available",
+                       status="using celery for task processing",
+                       redis_url=redis_url,
+                       attempt=attempt + 1)
+            break
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Redis connection attempt {attempt + 1} failed, retrying in {retry_delay}s: {e}")
+                time.sleep(retry_delay)
+            else:
+                raise e
+
 except Exception as e:
     USE_CELERY = False
     # Log detailed error for debugging
@@ -62,7 +85,7 @@ except Exception as e:
                 error=str(e),
                 redis_url=os.getenv('REDIS_URL', 'NOT SET'),
                 fallback="threading",
-                hint="Check REDIS_URL environment variable on Railway!")
+                hint="Redis connection failed after retries. Check Railway logs!")
     logger.warning("IMPORTANT: Running in threading mode - Celery worker will NOT receive tasks!")
     import threading
 
@@ -506,6 +529,34 @@ def api_usage_stats():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint showing system status"""
+    redis_status = "not_configured"
+    redis_url = os.getenv('REDIS_URL', 'NOT SET')
+
+    # Test Redis connection
+    if redis_url != 'NOT SET':
+        try:
+            import redis
+            r = redis.from_url(redis_url, socket_connect_timeout=2)
+            r.ping()
+            redis_status = "connected"
+        except Exception as e:
+            redis_status = f"error: {str(e)}"
+
+    return jsonify({
+        'status': 'healthy',
+        'mode': 'celery' if USE_CELERY else 'threading',
+        'redis': {
+            'url': redis_url if redis_url != 'NOT SET' else None,
+            'status': redis_status
+        },
+        'celery_enabled': USE_CELERY,
+        'warning': None if USE_CELERY else 'Running in threading mode - Celery worker not receiving tasks!'
+    })
 
 
 if __name__ == '__main__':
