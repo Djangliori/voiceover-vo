@@ -70,10 +70,10 @@ class AudioMixer:
         temp_mixed = temp_dir / f"temp_mixed_{os.getpid()}.wav"
 
         try:
-            # Build complex filter for overlaying all voiceover segments
-            # Strategy: overlay segments one by one using amerge and amix
+            # Build all audio streams to mix together
+            # Strategy: prepare all delayed voiceover streams, then mix all at once
 
-            current_audio = original_lowered
+            audio_streams = [original_lowered]
 
             for i, segment in enumerate(voiceover_segments):
                 start_time = segment['start']
@@ -89,20 +89,34 @@ class AudioMixer:
                     voiceover_audio = voiceover.audio
 
                 # Add delay to voiceover to position it at correct timestamp
+                # Pad the audio to match the original duration for proper mixing
                 voiceover_delayed = voiceover_audio.filter('adelay', f'{int(start_time * 1000)}|{int(start_time * 1000)}')
 
-                # Mix current audio with this voiceover segment
-                # Use amix to overlay the voiceover on top of current audio
-                current_audio = ffmpeg.filter([current_audio, voiceover_delayed], 'amix', inputs=2, duration='longest')
+                audio_streams.append(voiceover_delayed)
 
                 if progress_callback and (i + 1) % 10 == 0:
-                    progress_callback(f"Mixed {i + 1}/{len(voiceover_segments)} segments")
+                    progress_callback(f"Prepared {i + 1}/{len(voiceover_segments)} segments")
+
+            if progress_callback:
+                progress_callback("Mixing all audio tracks together...")
+
+            # Mix all audio streams at once with normalize=0 to prevent volume reduction
+            # normalize=0 means don't divide by number of inputs
+            # dropout_transition=0 means no fade when streams end
+            mixed_audio = ffmpeg.filter(
+                audio_streams,
+                'amix',
+                inputs=len(audio_streams),
+                duration='longest',
+                dropout_transition=0,
+                normalize=0
+            )
 
             if progress_callback:
                 progress_callback("Exporting mixed audio...")
 
             # Output final mixed audio
-            output = ffmpeg.output(current_audio, output_path, acodec='pcm_s16le', ar='44100')
+            output = ffmpeg.output(mixed_audio, output_path, acodec='pcm_s16le', ar='44100')
             ffmpeg.run(output, overwrite_output=True, quiet=True)
 
         finally:
