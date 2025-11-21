@@ -2,6 +2,7 @@
 TTS Factory Module
 Creates the appropriate Text-to-Speech provider based on configuration
 Supports: ElevenLabs, Google Gemini TTS
+Includes automatic fallback if primary provider fails
 """
 
 import os
@@ -12,58 +13,116 @@ logger = get_logger(__name__)
 
 def get_tts_provider():
     """
-    Get the configured TTS provider instance
+    Get the configured TTS provider instance with automatic fallback
 
     Environment variables:
         TTS_PROVIDER: 'elevenlabs' or 'gemini' (default: 'elevenlabs')
 
     Returns:
-        TextToSpeech instance (either ElevenLabs or Gemini)
+        TTSWithFallback wrapper that handles automatic fallback
 
     Raises:
-        ValueError: If provider is not configured correctly
+        ValueError: If no provider can be initialized
     """
-    provider = os.getenv('TTS_PROVIDER', 'elevenlabs').lower()
+    primary = os.getenv('TTS_PROVIDER', 'elevenlabs').lower()
 
-    logger.info(f"Initializing TTS provider: {provider}")
+    logger.info(f"Initializing TTS with primary provider: {primary}")
 
-    if provider == 'gemini':
-        return _get_gemini_provider()
-    elif provider == 'elevenlabs':
-        return _get_elevenlabs_provider()
-    else:
-        logger.warning(f"Unknown TTS provider '{provider}', falling back to ElevenLabs")
-        return _get_elevenlabs_provider()
+    # Return wrapper with fallback support
+    return TTSWithFallback(primary)
 
 
-def _get_elevenlabs_provider():
-    """Initialize ElevenLabs TTS provider"""
-    try:
-        from src.tts import TextToSpeech
-        provider = TextToSpeech()
-        logger.info("ElevenLabs TTS provider initialized successfully")
-        return provider
-    except Exception as e:
-        logger.error(f"Failed to initialize ElevenLabs TTS: {e}")
-        raise ValueError(f"ElevenLabs TTS initialization failed: {e}")
+class TTSWithFallback:
+    """TTS wrapper that automatically falls back to alternate provider on failure"""
 
+    def __init__(self, primary_provider):
+        self.primary_provider = primary_provider
+        self.fallback_provider = 'elevenlabs' if primary_provider == 'gemini' else 'gemini'
 
-def _get_gemini_provider():
-    """Initialize Google Gemini TTS provider"""
-    try:
-        from src.tts_gemini import GeminiTextToSpeech
-        provider = GeminiTextToSpeech()
-        logger.info("Gemini TTS provider initialized successfully")
-        return provider
-    except ImportError as e:
-        logger.error(f"Gemini TTS import failed. Install google-cloud-texttospeech>=2.29.0: {e}")
-        raise ValueError(
-            "Gemini TTS requires google-cloud-texttospeech>=2.29.0. "
-            "Install with: pip install google-cloud-texttospeech>=2.29.0"
-        )
-    except Exception as e:
-        logger.error(f"Failed to initialize Gemini TTS: {e}")
-        raise ValueError(f"Gemini TTS initialization failed: {e}")
+        # Try to initialize both providers
+        self._primary = None
+        self._fallback = None
+        self._primary_error = None
+        self._fallback_error = None
+
+        # Initialize primary
+        try:
+            self._primary = self._init_provider(self.primary_provider)
+            logger.info(f"Primary TTS provider ({self.primary_provider}) initialized successfully")
+        except Exception as e:
+            self._primary_error = str(e)
+            logger.warning(f"Primary TTS provider ({self.primary_provider}) failed to initialize: {e}")
+
+        # Initialize fallback
+        try:
+            self._fallback = self._init_provider(self.fallback_provider)
+            logger.info(f"Fallback TTS provider ({self.fallback_provider}) initialized successfully")
+        except Exception as e:
+            self._fallback_error = str(e)
+            logger.warning(f"Fallback TTS provider ({self.fallback_provider}) failed to initialize: {e}")
+
+        # Ensure at least one provider is available
+        if self._primary is None and self._fallback is None:
+            raise ValueError(
+                f"No TTS provider available. "
+                f"Primary ({self.primary_provider}): {self._primary_error}. "
+                f"Fallback ({self.fallback_provider}): {self._fallback_error}"
+            )
+
+    def _init_provider(self, provider_name):
+        """Initialize a specific provider"""
+        if provider_name == 'gemini':
+            from src.tts_gemini import GeminiTextToSpeech
+            return GeminiTextToSpeech()
+        elif provider_name == 'elevenlabs':
+            from src.tts import TextToSpeech
+            return TextToSpeech()
+        else:
+            raise ValueError(f"Unknown provider: {provider_name}")
+
+    def generate_voiceover(self, segments, temp_dir="temp", progress_callback=None):
+        """
+        Generate voiceover with automatic fallback
+
+        First tries primary provider, falls back to secondary on failure
+        """
+        # Try primary provider first
+        if self._primary is not None:
+            try:
+                logger.info(f"Generating voiceover with primary provider: {self.primary_provider}")
+                if progress_callback:
+                    progress_callback(f"Using {self.primary_provider.title()} TTS...")
+                return self._primary.generate_voiceover(segments, temp_dir, progress_callback)
+            except Exception as e:
+                logger.error(f"Primary provider ({self.primary_provider}) failed: {e}")
+                if self._fallback is None:
+                    raise  # No fallback available, re-raise
+
+                logger.info(f"Falling back to {self.fallback_provider}")
+                if progress_callback:
+                    progress_callback(f"Switching to {self.fallback_provider.title()} TTS (fallback)...")
+
+        # Try fallback provider
+        if self._fallback is not None:
+            try:
+                logger.info(f"Generating voiceover with fallback provider: {self.fallback_provider}")
+                return self._fallback.generate_voiceover(segments, temp_dir, progress_callback)
+            except Exception as e:
+                logger.error(f"Fallback provider ({self.fallback_provider}) also failed: {e}")
+                raise ValueError(
+                    f"All TTS providers failed. "
+                    f"Primary ({self.primary_provider}): failed during generation. "
+                    f"Fallback ({self.fallback_provider}): {e}"
+                )
+
+        raise ValueError("No TTS provider available")
+
+    def set_voice(self, voice_id):
+        """Set voice on both providers if available"""
+        if self._primary and hasattr(self._primary, 'set_voice'):
+            self._primary.set_voice(voice_id)
+        if self._fallback and hasattr(self._fallback, 'set_voice'):
+            self._fallback.set_voice(voice_id)
 
 
 def get_available_providers():
