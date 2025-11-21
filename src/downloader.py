@@ -64,7 +64,11 @@ class VideoDownloader:
             "X-RapidAPI-Host": "youtube-media-downloader.p.rapidapi.com"
         }
         # DataFanatic uses query parameter for video ID
-        params = {"videoId": video_id}
+        # Request formats with audio
+        params = {
+            "videoId": video_id,
+            "includeFormats": "true"  # Request all available formats
+        }
 
         logger.info("Fetching video details from RapidAPI...")
 
@@ -147,6 +151,16 @@ class VideoDownloader:
             if isinstance(videos_container, dict):
                 logger.info(f"Videos container keys: {list(videos_container.keys())}")
 
+                # Log available formats for debugging
+                if 'items' in videos_container:
+                    logger.info(f"Available formats count: {len(videos_container.get('items', []))}")
+                    for idx, item in enumerate(videos_container.get('items', [])[:5]):  # Log first 5
+                        if isinstance(item, dict):
+                            logger.info(f"Format {idx}: quality={item.get('quality')}, "
+                                      f"hasAudio={item.get('hasAudio')}, "
+                                      f"extension={item.get('extension')}, "
+                                      f"size={item.get('size')}")
+
                 # Check for error response
                 if videos_container.get('errorId') == 'Success' and 'items' in videos_container:
                     # Success response with items
@@ -179,26 +193,51 @@ class VideoDownloader:
                         url = video.get('url')
                         if url and url.startswith('http'):
                             quality = video.get('quality') or video.get('format') or 'unknown'
-                            valid_videos.append({'url': url, 'quality': quality})
-                            logger.info(f"Found video: {quality}")
+                            has_audio = video.get('hasAudio', True)  # Assume true if not specified
+                            extension = video.get('extension', 'mp4')
+
+                            # Log video details
+                            logger.info(f"Found format: {quality}, hasAudio={has_audio}, ext={extension}")
+
+                            # Only add videos that have audio or are marked as complete
+                            # Prefer mp4 formats as they usually have both streams
+                            if has_audio or 'audio' in str(quality).lower() or extension == 'mp4':
+                                valid_videos.append({
+                                    'url': url,
+                                    'quality': quality,
+                                    'hasAudio': has_audio,
+                                    'extension': extension
+                                })
 
                 if valid_videos:
-                    # Sort by quality (prefer higher resolution)
+                    # Sort by quality but PREFER formats with audio
                     def get_quality_score(v):
-                        q = v.get('quality', '')
-                        if '1080' in str(q): return 1080
-                        elif '720' in str(q): return 720
-                        elif '480' in str(q): return 480
-                        elif '360' in str(q): return 360
-                        elif '240' in str(q): return 240
-                        else: return 0
+                        score = 0
+                        q = str(v.get('quality', ''))
+
+                        # Give huge bonus for having audio
+                        if v.get('hasAudio', True):
+                            score += 10000
+
+                        # Add resolution score
+                        if '1080' in q: score += 1080
+                        elif '720' in q: score += 720
+                        elif '480' in q: score += 480
+                        elif '360' in q: score += 360
+                        elif '240' in q: score += 240
+
+                        # Prefer mp4
+                        if v.get('extension') == 'mp4':
+                            score += 100
+
+                        return score
 
                     best_video = max(valid_videos, key=get_quality_score)
                     download_url = best_video['url']
-                    logger.info(f"Selected quality: {best_video['quality']}")
+                    logger.info(f"Selected format: {best_video['quality']} (hasAudio={best_video.get('hasAudio', 'unknown')})")
                 else:
-                    logger.error(f"No valid URLs found in {len(videos)} videos")
-                    raise Exception("No valid video URLs found in API response")
+                    logger.error(f"No valid URLs with audio found in {len(videos)} videos")
+                    raise Exception("No valid video URLs with audio found in API response")
 
             # Check if videos is a dictionary (old format: {"720p": "url", ...})
             elif isinstance(videos, dict):
@@ -327,6 +366,23 @@ class VideoDownloader:
 
         logger.info(f"Using ffmpeg at: {ffmpeg_path}")
 
+        # First, check if video has audio stream
+        probe_cmd = [
+            ffmpeg_path,
+            '-i', str(video_path),
+            '-hide_banner'
+        ]
+
+        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+
+        # Check if there's an audio stream
+        has_audio_stream = 'Audio:' in probe_result.stderr
+
+        if not has_audio_stream:
+            logger.error("Video file has no audio stream!")
+            logger.error("This video appears to be video-only. The API may have returned a format without audio.")
+            raise Exception("Video file has no audio stream. The downloaded format is video-only. Please try a different video or check API settings.")
+
         cmd = [
             ffmpeg_path,
             '-i', str(video_path),
@@ -344,7 +400,12 @@ class VideoDownloader:
         if result.returncode != 0:
             logger.error(f"ffmpeg failed with return code {result.returncode}")
             logger.error(f"ffmpeg stderr: {result.stderr}")
-            raise Exception(f"Failed to extract audio: {result.stderr}")
+
+            # Check specific error cases
+            if "Output file #0 does not contain any stream" in result.stderr:
+                raise Exception("Video file has no audio stream. The API returned a video-only format.")
+            else:
+                raise Exception(f"Failed to extract audio: {result.stderr}")
         else:
             logger.info(f"Audio extracted successfully to {audio_path}")
 
