@@ -1,13 +1,15 @@
 """
 Audio Mixing Module
 Mixes original audio with Georgian voiceover, lowering original volume during speech
-Uses ffmpeg for reliable audio processing
+Uses pydub for reliable audio overlay at specific timestamps
 """
 
 import os
-import ffmpeg
 from pathlib import Path
-import subprocess
+from pydub import AudioSegment
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class AudioMixer:
@@ -22,30 +24,9 @@ class AudioMixer:
         self.original_volume = original_volume
         self.voiceover_volume = voiceover_volume
 
-    def _get_ffmpeg_path(self):
-        """Find ffmpeg binary"""
-        import shutil
-
-        # Check for Nix path first (Railway)
-        nix_ffmpeg = '/nix/var/nix/profiles/default/bin/ffmpeg'
-        if os.path.exists(nix_ffmpeg):
-            return nix_ffmpeg
-
-        # Try system PATH
-        ffmpeg_path = shutil.which('ffmpeg')
-        if ffmpeg_path:
-            return ffmpeg_path
-
-        # Try common locations
-        for path in ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg']:
-            if os.path.exists(path):
-                return path
-
-        raise Exception("ffmpeg not found")
-
     def mix_audio(self, original_audio_path, voiceover_segments, output_path, progress_callback=None):
         """
-        Mix original audio with Georgian voiceover using ffmpeg
+        Mix original audio with Georgian voiceover using pydub
 
         Args:
             original_audio_path: Path to original audio WAV file
@@ -59,31 +40,32 @@ class AudioMixer:
         if progress_callback:
             progress_callback("Loading original audio...")
 
-        # Get original audio duration
-        probe = ffmpeg.probe(original_audio_path)
-        duration = float(probe['streams'][0]['duration'])
+        # Load original audio
+        original = AudioSegment.from_wav(original_audio_path)
+        duration_ms = len(original)
+
+        logger.info(f"Original audio duration: {duration_ms}ms")
 
         if progress_callback:
             progress_callback("Lowering original audio volume...")
 
-        temp_dir = Path(output_path).parent
-        ffmpeg_path = self._get_ffmpeg_path()
+        # Lower the original audio volume
+        # pydub uses dB, so convert ratio to dB: dB = 20 * log10(ratio)
+        import math
+        if self.original_volume > 0:
+            volume_db = 20 * math.log10(self.original_volume)
+        else:
+            volume_db = -60  # Effectively silent
+
+        original_lowered = original + volume_db
+        logger.info(f"Lowered original audio by {volume_db:.1f}dB")
 
         if not voiceover_segments:
             # No voiceover, just export lowered original
             if progress_callback:
                 progress_callback("Exporting audio...")
 
-            cmd = [
-                ffmpeg_path,
-                '-i', original_audio_path,
-                '-af', f'volume={self.original_volume}',
-                '-acodec', 'pcm_s16le',
-                '-ar', '44100',
-                '-y',
-                output_path
-            ]
-            subprocess.run(cmd, capture_output=True, check=True)
+            original_lowered.export(output_path, format="wav")
 
             if progress_callback:
                 progress_callback("Audio mixing complete!")
@@ -92,172 +74,57 @@ class AudioMixer:
         if progress_callback:
             progress_callback(f"Mixing {len(voiceover_segments)} voiceover segments...")
 
-        # Strategy: Create a combined voiceover track first, then mix with original
-        # This avoids the amix volume reduction issue by only using 2 inputs at final mix
+        # Create a silent track the same length as the original
+        # We'll overlay voiceover segments onto this
+        voiceover_track = AudioSegment.silent(duration=duration_ms)
 
-        voiceover_track = temp_dir / f"voiceover_combined_{os.getpid()}.wav"
+        logger.info(f"Created silent voiceover track: {duration_ms}ms")
 
-        try:
-            # Step 1: Create combined voiceover track
-            # We'll use Sox-style concatenation with silence padding
-            # But since we have ffmpeg, we'll use a reliable approach:
-            # Create each segment as a full-duration track with silence, then sum
+        # Overlay each voiceover segment at its timestamp
+        for i, segment in enumerate(voiceover_segments):
+            start_time = segment['start']
+            segment_path = segment['audio_path']
 
-            if progress_callback:
-                progress_callback("Building voiceover timeline...")
+            start_ms = int(start_time * 1000)
 
-            # For each segment, create a padded version and save it
-            padded_segments = []
-            for i, segment in enumerate(voiceover_segments):
-                start_time = segment['start']
-                segment_path = segment['audio_path']
-                padded_path = temp_dir / f"padded_{os.getpid()}_{i}.wav"
+            try:
+                # Load the voiceover segment
+                voiceover_clip = AudioSegment.from_wav(segment_path)
 
-                # Create a track that is: [silence for start_time] + [voiceover] + [silence to fill duration]
-                # Using adelay to add silence at the start, then pad to full duration
-                delay_ms = int(start_time * 1000)
+                # Apply volume adjustment if needed
+                if self.voiceover_volume != 1.0 and self.voiceover_volume > 0:
+                    vo_volume_db = 20 * math.log10(self.voiceover_volume)
+                    voiceover_clip = voiceover_clip + vo_volume_db
 
-                cmd = [
-                    ffmpeg_path,
-                    '-i', segment_path,
-                    '-af', f'adelay={delay_ms}|{delay_ms},apad=whole_dur={duration}',
-                    '-acodec', 'pcm_s16le',
-                    '-ar', '44100',
-                    '-ac', '1',
-                    '-y',
-                    str(padded_path)
-                ]
+                # Overlay at the correct position
+                # pydub's overlay adds the audio on top (sums the waveforms)
+                voiceover_track = voiceover_track.overlay(voiceover_clip, position=start_ms)
 
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                if result.returncode != 0:
-                    raise Exception(f"Failed to pad segment {i}: {result.stderr}")
+                logger.debug(f"Overlayed segment {i} at {start_ms}ms (duration: {len(voiceover_clip)}ms)")
 
-                padded_segments.append(str(padded_path))
+            except Exception as e:
+                logger.error(f"Failed to overlay segment {i}: {e}")
+                raise
 
-                if progress_callback and (i + 1) % 5 == 0:
-                    progress_callback(f"Prepared {i + 1}/{len(voiceover_segments)} segments")
+            if progress_callback and (i + 1) % 5 == 0:
+                progress_callback(f"Positioned {i + 1}/{len(voiceover_segments)} voiceover segments")
 
-            if progress_callback:
-                progress_callback("Combining voiceover segments...")
+        if progress_callback:
+            progress_callback("Combining audio tracks...")
 
-            # Step 2: Sum all padded segments together
-            # Since they don't overlap (mostly), we can just add them
-            # We'll do this by summing waveforms directly using ffmpeg's 'amix'
-            # BUT with a key insight: use volume compensation
+        # Now mix the lowered original with the voiceover track
+        # pydub's overlay will sum the two audio tracks
+        final_mix = original_lowered.overlay(voiceover_track)
 
-            # Build input args
-            input_args = []
-            for seg_path in padded_segments:
-                input_args.extend(['-i', seg_path])
+        if progress_callback:
+            progress_callback("Exporting mixed audio...")
 
-            # For N non-overlapping inputs, amix won't reduce volume much
-            # But to be safe, we'll amplify by sqrt(N) after mixing
-            num_segments = len(padded_segments)
+        # Export the final mix
+        final_mix.export(output_path, format="wav")
 
-            # Apply volume boost after amix to compensate
-            # amix with normalize=0 should work, but as backup we boost
-            volume_boost = 1.0  # Start with no boost, amix normalize=0 should preserve
+        logger.info(f"Audio mixing complete: {output_path}")
 
-            cmd = [
-                ffmpeg_path,
-                *input_args,
-                '-filter_complex',
-                f'amix=inputs={num_segments}:duration=longest:dropout_transition=0:normalize=0,volume={volume_boost}',
-                '-acodec', 'pcm_s16le',
-                '-ar', '44100',
-                '-y',
-                str(voiceover_track)
-            ]
-
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                # If amix fails, try alternative: sequential mixing
-                if progress_callback:
-                    progress_callback("Using alternative mixing method...")
-                self._mix_sequential(padded_segments, str(voiceover_track), ffmpeg_path)
-
-            # Clean up padded segments
-            for seg_path in padded_segments:
-                try:
-                    Path(seg_path).unlink()
-                except:
-                    pass
-
-            if progress_callback:
-                progress_callback("Mixing with original audio...")
-
-            # Step 3: Mix original (lowered) with voiceover track
-            # Just 2 inputs = no volume issues!
-            cmd = [
-                ffmpeg_path,
-                '-i', original_audio_path,
-                '-i', str(voiceover_track),
-                '-filter_complex',
-                f'[0:a]volume={self.original_volume}[orig];[orig][1:a]amix=inputs=2:duration=longest:normalize=0',
-                '-acodec', 'pcm_s16le',
-                '-ar', '44100',
-                '-y',
-                output_path
-            ]
-
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise Exception(f"Failed to mix audio: {result.stderr}")
-
-            if progress_callback:
-                progress_callback("Audio mixing complete!")
-
-        finally:
-            # Clean up
-            if voiceover_track.exists():
-                try:
-                    voiceover_track.unlink()
-                except:
-                    pass
+        if progress_callback:
+            progress_callback("Audio mixing complete!")
 
         return output_path
-
-    def _mix_sequential(self, segment_paths, output_path, ffmpeg_path):
-        """
-        Alternative mixing method: mix segments two at a time
-        This is slower but guaranteed to preserve volume
-        """
-        if len(segment_paths) == 0:
-            return
-
-        if len(segment_paths) == 1:
-            # Just copy
-            import shutil
-            shutil.copy(segment_paths[0], output_path)
-            return
-
-        temp_dir = Path(output_path).parent
-        current = segment_paths[0]
-
-        for i, next_seg in enumerate(segment_paths[1:]):
-            is_last = (i == len(segment_paths) - 2)
-            out_path = output_path if is_last else str(temp_dir / f"mix_temp_{os.getpid()}_{i}.wav")
-
-            cmd = [
-                ffmpeg_path,
-                '-i', current,
-                '-i', next_seg,
-                '-filter_complex', 'amix=inputs=2:duration=longest:normalize=0',
-                '-acodec', 'pcm_s16le',
-                '-ar', '44100',
-                '-y',
-                out_path
-            ]
-
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise Exception(f"Sequential mix failed at step {i}: {result.stderr}")
-
-            # Clean up previous temp
-            if i > 0 and Path(current).name.startswith('mix_temp_'):
-                try:
-                    Path(current).unlink()
-                except:
-                    pass
-
-            current = out_path
