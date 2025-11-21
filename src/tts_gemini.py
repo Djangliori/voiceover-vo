@@ -5,13 +5,16 @@ Supports parallel requests for faster processing
 """
 
 import os
+import json
 import subprocess
 import shutil
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 # Google Cloud TTS imports
 from google.cloud import texttospeech
+from google.oauth2 import service_account
 
 
 class GeminiTextToSpeech:
@@ -19,15 +22,14 @@ class GeminiTextToSpeech:
 
     def __init__(self):
         """Initialize Google Cloud Text-to-Speech client with Gemini model"""
-        # Check for credentials
-        credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
-        if not credentials_path and not os.getenv('GOOGLE_CLOUD_PROJECT'):
-            raise ValueError(
-                "Google Cloud credentials not configured. "
-                "Set GOOGLE_APPLICATION_CREDENTIALS or run 'gcloud auth application-default login'"
-            )
+        # Try to get credentials from various sources
+        credentials = self._get_credentials()
 
-        self.client = texttospeech.TextToSpeechClient()
+        if credentials:
+            self.client = texttospeech.TextToSpeechClient(credentials=credentials)
+        else:
+            # Fall back to default credentials (ADC)
+            self.client = texttospeech.TextToSpeechClient()
 
         # Gemini TTS configuration for Georgian
         self.language_code = "ka-GE"  # Georgian (Georgia)
@@ -44,6 +46,25 @@ class GeminiTextToSpeech:
 
         # Parallel processing settings
         self.max_workers = int(os.getenv('GEMINI_TTS_MAX_CONCURRENT', '5'))
+
+    def _get_credentials(self):
+        """Get Google Cloud credentials from environment"""
+        # Option 1: JSON credentials stored directly in env var
+        creds_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+        if creds_json:
+            try:
+                creds_dict = json.loads(creds_json)
+                return service_account.Credentials.from_service_account_info(creds_dict)
+            except json.JSONDecodeError:
+                pass
+
+        # Option 2: Path to credentials file
+        creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+        if creds_path and os.path.exists(creds_path):
+            return service_account.Credentials.from_service_account_file(creds_path)
+
+        # Option 3: Return None to use Application Default Credentials
+        return None
 
     def generate_voiceover(self, segments, temp_dir="temp", progress_callback=None):
         """
