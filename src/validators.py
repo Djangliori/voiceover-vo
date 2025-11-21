@@ -8,12 +8,15 @@ from functools import wraps
 from flask import request, jsonify
 
 
-# YouTube URL patterns
+# YouTube URL patterns (including geyoutube.com support)
 YOUTUBE_PATTERNS = [
     r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})',
     r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]{11})',
     r'(?:https?:\/\/)?youtu\.be\/([a-zA-Z0-9_-]{11})',
     r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})',
+    r'(?:https?:\/\/)?(?:www\.)?geyoutube\.com\/watch\?v=([a-zA-Z0-9_-]{11})',
+    r'(?:https?:\/\/)?(?:www\.)?geyoutube\.com\/shorts\/([a-zA-Z0-9_-]{11})',
+    r'[?&]v=([a-zA-Z0-9_-]{11})',  # Query parameter fallback
 ]
 
 # Validation constants
@@ -65,6 +68,38 @@ def validate_youtube_url(url):
     raise ValidationError(
         "Invalid YouTube URL. Please provide a valid youtube.com or youtu.be URL"
     )
+
+
+def extract_video_id(url_or_path):
+    """
+    Extract YouTube video ID from various URL formats or paths
+    This is the single source of truth for video ID extraction
+
+    Args:
+        url_or_path: YouTube URL, path, or video ID
+
+    Returns:
+        str: Video ID or None if not found
+    """
+    if not url_or_path or not isinstance(url_or_path, str):
+        return None
+
+    # Sanitize input
+    url_or_path = url_or_path.strip()
+
+    # Check if it's already a valid video ID
+    if VALID_VIDEO_ID_PATTERN.match(url_or_path):
+        return url_or_path
+
+    # Try to extract from URL patterns
+    for pattern in YOUTUBE_PATTERNS:
+        match = re.search(pattern, url_or_path)
+        if match:
+            video_id = match.group(1)
+            if VALID_VIDEO_ID_PATTERN.match(video_id):
+                return video_id
+
+    return None
 
 
 def validate_video_id(video_id):

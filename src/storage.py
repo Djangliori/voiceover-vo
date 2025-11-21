@@ -7,6 +7,9 @@ import os
 import boto3
 from botocore.config import Config
 from pathlib import Path
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class R2Storage:
@@ -97,65 +100,7 @@ class R2Storage:
             # Check if object exists
             self.s3_client.head_object(Bucket=self.bucket_name, Key=s3_key)
             return f"{self.public_url}/{s3_key}"
-        except:
+        except Exception as e:
+            # Log error properly instead of bare except
+            logger.error("r2_upload_error", error=str(e), exc_info=True)
             return None
-
-    def video_exists(self, video_id):
-        """
-        Check if video already exists in R2
-
-        Args:
-            video_id: YouTube video ID
-
-        Returns:
-            Boolean indicating if video exists
-        """
-        s3_key = f"videos/{video_id}_georgian.mp4"
-
-        try:
-            self.s3_client.head_object(Bucket=self.bucket_name, Key=s3_key)
-            return True
-        except:
-            return False
-
-    def delete_video(self, video_id):
-        """
-        Delete video from R2
-
-        Args:
-            video_id: YouTube video ID
-
-        Returns:
-            Boolean indicating success
-        """
-        s3_key = f"videos/{video_id}_georgian.mp4"
-
-        try:
-            self.s3_client.delete_object(Bucket=self.bucket_name, Key=s3_key)
-            return True
-        except Exception as e:
-            print(f"R2 delete error: {e}")
-            return False
-
-    def generate_presigned_url(self, video_id, expiration=3600):
-        """
-        Generate a presigned URL for temporary access (if needed)
-
-        Args:
-            video_id: YouTube video ID
-            expiration: URL expiration time in seconds (default 1 hour)
-
-        Returns:
-            Presigned URL
-        """
-        s3_key = f"videos/{video_id}_georgian.mp4"
-
-        try:
-            url = self.s3_client.generate_presigned_url(
-                'get_object',
-                Params={'Bucket': self.bucket_name, 'Key': s3_key},
-                ExpiresIn=expiration
-            )
-            return url
-        except Exception as e:
-            raise Exception(f"Presigned URL generation error: {str(e)}")

@@ -5,17 +5,13 @@ Supports geyoutube.com URL pattern (like ssyoutube.com)
 """
 
 import os
-import sys
 import re
+import threading
 from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for
 from flask_cors import CORS
 from dotenv import load_dotenv
 from pathlib import Path
-import traceback
-import uuid
 from datetime import datetime
-from urllib.parse import urlparse, parse_qs
-from celery.result import AsyncResult
 
 # Load environment variables
 load_dotenv()
@@ -23,6 +19,9 @@ load_dotenv()
 # Setup structured logging
 from src.logging_config import get_logger
 logger = get_logger(__name__)
+
+# Import central configuration
+from src.config import Config
 
 # Set Google credentials if file exists
 google_creds_path = os.path.join(
@@ -63,10 +62,13 @@ except Exception as e:
 app = Flask(__name__)
 CORS(app)
 
-# Configuration
-app.config['OUTPUT_DIR'] = os.getenv('OUTPUT_DIR', 'output')
-app.config['TEMP_DIR'] = os.getenv('TEMP_DIR', 'temp')
-app.config['MAX_VIDEO_LENGTH'] = int(os.getenv('MAX_VIDEO_LENGTH', 1800))
+# Configuration from central config
+app.config['OUTPUT_DIR'] = Config.OUTPUT_DIR
+app.config['TEMP_DIR'] = Config.TEMP_DIR
+app.config['MAX_VIDEO_LENGTH'] = Config.MAX_VIDEO_LENGTH
+app.config['MAX_FILE_SIZE'] = Config.MAX_FILE_SIZE
+app.config['MAX_CONCURRENT_JOBS'] = Config.MAX_CONCURRENT_JOBS
+app.config['SECRET_KEY'] = Config.SECRET_KEY
 
 # Initialize database and storage
 db = Database()
@@ -82,35 +84,13 @@ except Exception as e:
 # Store Celery task IDs mapped to video IDs (Celery mode)
 task_id_map = {}  # video_id -> celery_task_id
 
-# Store processing status for threading mode
+# Store processing status for threading mode with thread safety
 processing_status = {}  # video_id -> status_dict
+processing_status_lock = threading.Lock()  # Protect against race conditions
 
 
-def extract_video_id(url_or_path):
-    """
-    Extract YouTube video ID from various URL formats or path
-
-    Args:
-        url_or_path: YouTube URL or path (e.g., /watch?v=xxx)
-
-    Returns:
-        Video ID or None
-    """
-    # Patterns for YouTube URLs
-    patterns = [
-        r'(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})',
-        r'(?:youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})',
-        r'(?:geyoutube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})',
-        r'(?:geyoutube\.com\/shorts\/)([a-zA-Z0-9_-]{11})',
-        r'[?&]v=([a-zA-Z0-9_-]{11})',
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, url_or_path)
-        if match:
-            return match.group(1)
-
-    return None
+# Import the consolidated extract_video_id from validators
+from src.validators import extract_video_id
 
 
 def construct_youtube_url(video_id):
@@ -129,11 +109,12 @@ def process_video_threading(video_id, youtube_url):
 
     try:
         def update_status(message, progress=None):
-            processing_status[video_id] = {
-                'status': message,
-                'progress': progress or 0,
-                'video_id': video_id
-            }
+            with processing_status_lock:
+                processing_status[video_id] = {
+                    'status': message,
+                    'progress': progress or 0,
+                    'video_id': video_id
+                }
             logger.info("processing_progress", video_id=video_id, status=message, progress=progress or 0)
 
         # Initialize components
@@ -225,9 +206,10 @@ def process_video_threading(video_id, youtube_url):
         update_status("Processing complete!", 100)
         db.update_video_status(video_id, 'completed', r2_url=r2_url)
 
-        processing_status[video_id]['complete'] = True
-        processing_status[video_id]['r2_url'] = r2_url
-        processing_status[video_id]['title'] = video_title
+        with processing_status_lock:
+            processing_status[video_id]['complete'] = True
+            processing_status[video_id]['r2_url'] = r2_url
+            processing_status[video_id]['title'] = video_title
 
         # Cleanup temporary files
         downloader.cleanup(video_id)
@@ -235,12 +217,13 @@ def process_video_threading(video_id, youtube_url):
     except Exception as e:
         error_msg = str(e)
         logger.error("processing_error", video_id=video_id, error=error_msg, exc_info=True)
-        processing_status[video_id] = {
-            'status': f"Error: {error_msg}",
-            'error': error_msg,
-            'complete': False,
-            'progress': 0
-        }
+        with processing_status_lock:
+            processing_status[video_id] = {
+                'status': f"Error: {error_msg}",
+                'error': error_msg,
+                'complete': False,
+                'progress': 0
+            }
         db.update_video_status(video_id, 'failed', error_message=error_msg)
 
 
@@ -322,6 +305,17 @@ def process_video():
                 'r2_url': video.r2_url
             })
 
+        # Check concurrent job limits
+        if not USE_CELERY:
+            with processing_status_lock:
+                active_jobs = sum(1 for status in processing_status.values()
+                                if not status.get('complete', False))
+                if active_jobs >= app.config['MAX_CONCURRENT_JOBS']:
+                    return jsonify({
+                        'success': False,
+                        'error': f"Too many videos processing. Maximum {app.config['MAX_CONCURRENT_JOBS']} allowed."
+                    }), 429
+
         # Create database entry
         if not video:
             video = db.create_video(video_id, "Processing...", youtube_url)
@@ -332,11 +326,12 @@ def process_video():
             task_id_map[video_id] = task.id
         else:
             # Initialize processing status for threading mode
-            processing_status[video_id] = {
-                'status': 'Starting...',
-                'progress': 0,
-                'video_id': video_id
-            }
+            with processing_status_lock:
+                processing_status[video_id] = {
+                    'status': 'Starting...',
+                    'progress': 0,
+                    'video_id': video_id
+                }
             thread = threading.Thread(
                 target=process_video_threading,
                 args=(video_id, youtube_url)
@@ -398,8 +393,11 @@ def get_status(video_id):
         # If database doesn't have completed/failed status, check in-memory status
         # For Celery mode, the task updates the database directly
         # For threading mode, check the in-memory dict
-        if not USE_CELERY and video_id in processing_status:
-            return jsonify(processing_status[video_id])
+        if not USE_CELERY:
+            with processing_status_lock:
+                if video_id in processing_status:
+                    # Make a copy to avoid returning reference to shared dict
+                    return jsonify(dict(processing_status[video_id]))
 
         # Default response - video is being processed
         return jsonify({
@@ -463,8 +461,10 @@ def debug_video(video_id):
         }
 
         # If threading mode, include in-memory status
-        if not USE_CELERY and video_id in processing_status:
-            debug_info['threading_status'] = processing_status[video_id]
+        if not USE_CELERY:
+            with processing_status_lock:
+                if video_id in processing_status:
+                    debug_info['threading_status'] = dict(processing_status[video_id])
 
         return jsonify(debug_info)
 

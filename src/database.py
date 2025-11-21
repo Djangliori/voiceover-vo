@@ -95,6 +95,9 @@ class Database:
         session = self.get_session()
         try:
             video = session.query(Video).filter_by(video_id=video_id).first()
+            if video:
+                # Detach from session to avoid LazyLoadingError after session closes
+                session.expunge(video)
             return video
         finally:
             self.close_session(session)
@@ -122,6 +125,8 @@ class Database:
             session.add(video)
             session.commit()
             session.refresh(video)
+            # Detach from session before returning
+            session.expunge(video)
             return video
         except Exception as e:
             session.rollback()

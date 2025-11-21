@@ -4,7 +4,7 @@ Translates text to Georgian using OpenAI GPT-4 for natural, context-aware transl
 """
 
 import os
-from openai import OpenAI
+import openai
 from src.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -12,12 +12,12 @@ logger = get_logger(__name__)
 
 class Translator:
     def __init__(self):
-        """Initialize OpenAI client for AI-powered translation (v1.x)"""
+        """Initialize OpenAI for AI-powered translation"""
         api_key = os.getenv('OPENAI_API_KEY')
         if not api_key:
             raise ValueError("OPENAI_API_KEY not found in environment variables")
 
-        self.client = OpenAI(api_key=api_key)
+        openai.api_key = api_key
         self.target_language = 'Georgian'
 
     def translate_segments(self, segments, progress_callback=None):
@@ -63,7 +63,7 @@ Do not add any explanations, just provide the translations."""
                         "content": f"Translate these segments to Georgian:\n\n{full_text}"
                     }
                 ],
-                temperature=0.3,  # Lower temperature for more consistent translations
+                temperature=0.3  # Lower temperature for more consistent translations
             )
 
             # Parse the response
@@ -94,6 +94,9 @@ Do not add any explanations, just provide the translations."""
                     progress_callback(f"Processed {i + 1}/{len(segments)} translations")
 
         except Exception as e:
+            # Log the error properly instead of silently ignoring
+            logger.error("batch_translation_failed", error=str(e), exc_info=True)
+
             # Fallback: translate segments individually
             if progress_callback:
                 progress_callback(f"Batch translation failed, translating individually...")
@@ -126,7 +129,7 @@ Do not add any explanations, just provide the translations."""
             Translated text
         """
         try:
-            response = openai.ChatCompletion.create(
+            response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {
@@ -142,13 +145,15 @@ Only respond with the translation, no explanations."""
                     }
                 ],
                 temperature=0.3,
+                timeout=30.0  # Add 30 second timeout
             )
 
-            return response['choices'][0]['message']['content'].strip()
+            return response.choices[0].message.content.strip()
 
         except Exception as e:
+            # Log error properly instead of using print
+            logger.error("single_translation_failed", error=str(e), text=text[:100])
             # Ultimate fallback: return original text with error marker
-            print(f"Translation error: {e}")
             return f"[Translation Error] {text}"
 
     def translate_text(self, text):

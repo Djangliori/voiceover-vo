@@ -5,20 +5,20 @@ Uses OpenAI Whisper API for transcription with timestamps
 
 import os
 from pathlib import Path
-from openai import OpenAI
+import openai
 
 
 class Transcriber:
     def __init__(self):
         """
-        Initialize transcriber with OpenAI Whisper API (v1.x)
+        Initialize transcriber with OpenAI Whisper API
         """
-        # Initialize OpenAI client with API key
+        # Set OpenAI API key for v0.28.1 compatibility
         api_key = os.getenv('OPENAI_API_KEY')
         if not api_key:
             raise ValueError("OPENAI_API_KEY environment variable not set")
 
-        self.client = OpenAI(api_key=api_key)
+        openai.api_key = api_key
 
     def transcribe(self, audio_path, progress_callback=None):
         """
@@ -34,15 +34,14 @@ class Transcriber:
         if progress_callback:
             progress_callback("Starting Whisper API transcription...")
 
-        # OpenAI Whisper API v1.x usage with timeout
+        # OpenAI Whisper API v0.28.1 usage
         with open(audio_path, 'rb') as audio_file:
-            response = self.client.audio.transcriptions.create(
+            response = openai.Audio.transcribe(
                 model="whisper-1",
                 file=audio_file,
                 language='en',  # Source language
                 response_format='verbose_json',  # Get timestamps
-                timestamp_granularities=['segment'],  # Get segment-level timestamps
-                timeout=60.0  # Add 60 second timeout
+                timestamp_granularities=['segment']  # Get segment-level timestamps
             )
 
         # Extract segments with timestamps from API response
@@ -50,14 +49,14 @@ class Transcriber:
         if hasattr(response, 'segments') and response.segments:
             for segment in response.segments:
                 segments.append({
-                    'text': segment.text.strip(),
-                    'start': segment.start,
-                    'end': segment.end
+                    'text': segment['text'].strip(),
+                    'start': segment['start'],
+                    'end': segment['end']
                 })
         else:
             # Fallback: if no segments, create one segment with full text
             segments.append({
-                'text': response.text.strip() if hasattr(response, 'text') else str(response),
+                'text': response.get('text', '').strip(),
                 'start': 0.0,
                 'end': 0.0  # Unknown duration
             })
