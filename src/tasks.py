@@ -51,13 +51,14 @@ class CallbackTask(Task):
 
 
 @celery_app.task(bind=True, base=CallbackTask, max_retries=1)  # Only 1 retry to prevent quota waste
-def process_video_task(self, video_id, youtube_url):
+def process_video_task(self, video_id, youtube_url, user_id=None):
     """
     Celery task for processing video with Georgian voiceover
 
     Args:
         video_id: YouTube video ID
         youtube_url: Full YouTube URL
+        user_id: User ID to charge minutes to (optional)
 
     Returns:
         dict: Processing result with status, r2_url, title
@@ -94,6 +95,8 @@ def process_video_task(self, video_id, youtube_url):
         range_size = end - start
         sub_progress = (current / total) * range_size
         return int(start + sub_progress)
+
+    video_duration_minutes = 0  # Initialize for usage tracking
 
     try:
         # First, ensure video exists in database
@@ -155,8 +158,9 @@ def process_video_task(self, video_id, youtube_url):
                 progress_callback=download_progress_callback
             )
             video_title = video_info['title']
+            video_duration_minutes = video_info.get('duration', 0) / 60  # Convert seconds to minutes
             update_progress(f"✅ Video downloaded: {video_title}", 20)
-            logger.info(f"Download complete for {video_id}: {video_title}")
+            logger.info(f"Download complete for {video_id}: {video_title} ({video_duration_minutes:.2f} min)")
         except Exception as e:
             logger.error(f"Download failed for {video_id}: {str(e)}")
             raise
@@ -324,12 +328,21 @@ def process_video_task(self, video_id, youtube_url):
         update_progress("🎉 Processing complete! Your Georgian voiceover is ready!", 100)
         self.db.update_video_status(video_id, 'completed', r2_url=r2_url)
 
+        # Charge user for minutes used
+        if user_id and video_duration_minutes > 0:
+            try:
+                self.db.record_user_video(user_id, video_id, video_duration_minutes)
+                logger.info(f"Charged user {user_id}: {video_duration_minutes:.2f} minutes for video {video_id}")
+            except Exception as charge_err:
+                logger.error(f"Failed to charge user {user_id}: {charge_err}")
+
         return {
             'status': 'completed',
             'video_id': video_id,
             'r2_url': r2_url,
             'title': video_title,
-            'progress': 100
+            'progress': 100,
+            'minutes_charged': video_duration_minutes
         }
 
     except Exception as exc:

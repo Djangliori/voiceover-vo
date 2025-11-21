@@ -128,6 +128,19 @@ async function processVideo() {
         const data = await response.json();
 
         if (!response.ok) {
+            // Handle login required
+            if (data.login_required) {
+                window.location.href = '/login';
+                return;
+            }
+
+            // Handle quota exceeded
+            if (data.quota_exceeded) {
+                showError(`You have used all your minutes for this month. Current plan: ${data.tier?.display_name || 'Free'}. Please upgrade to continue.`);
+                processBtn.disabled = false;
+                return;
+            }
+
             throw new Error(data.error || 'Processing failed');
         }
 

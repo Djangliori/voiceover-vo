@@ -32,7 +32,7 @@ if os.path.exists(google_creds_path):
     os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = google_creds_path
 
 # Import database and tasks
-from src.database import Database
+from src.database import Database, Video
 from src.storage import R2Storage
 from src.validators import (
     validate_youtube_url,
@@ -156,7 +156,7 @@ def construct_youtube_url(video_id):
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
-def process_video_threading(video_id, youtube_url):
+def process_video_threading(video_id, youtube_url, user_id=None):
     """Fallback threading-based video processing when Celery unavailable"""
     from src.downloader import VideoDownloader
     from src.transcriber import Transcriber
@@ -164,6 +164,8 @@ def process_video_threading(video_id, youtube_url):
     from src.tts import TextToSpeech
     from src.audio_mixer import AudioMixer
     from src.video_processor import VideoProcessor
+
+    video_duration_minutes = 0  # Track for usage charging
 
     try:
         def update_status(message, progress=None):
@@ -190,11 +192,12 @@ def process_video_threading(video_id, youtube_url):
         update_status("Downloading video from YouTube...", 10)
         video_info = downloader.download_video(youtube_url)
         video_title = video_info['title']
+        video_duration_minutes = video_info.get('duration', 0) / 60  # Convert seconds to minutes
 
         # Update database with title
         db.update_video_status(video_id, 'processing')
         session = db.get_session()
-        video = session.query(db.Video).filter_by(video_id=video_id).first()
+        video = session.query(Video).filter_by(video_id=video_id).first()
         if video:
             video.title = video_title
             session.commit()
@@ -263,6 +266,14 @@ def process_video_threading(video_id, youtube_url):
         # Update database
         update_status("Processing complete!", 100)
         db.update_video_status(video_id, 'completed', r2_url=r2_url)
+
+        # Charge user for minutes used
+        if user_id and video_duration_minutes > 0:
+            try:
+                db.record_user_video(user_id, video_id, video_duration_minutes)
+                logger.info(f"Charged user {user_id}: {video_duration_minutes:.2f} minutes for video {video_id}")
+            except Exception as charge_err:
+                logger.error(f"Failed to charge user {user_id}: {charge_err}")
 
         with processing_status_lock:
             processing_status[video_id]['complete'] = True
@@ -369,8 +380,25 @@ def admin_panel():
 @app.route('/process', methods=['POST'])
 @validate_json_request(required_fields=['url'])
 def process_video():
-    """Legacy API endpoint for processing videos"""
+    """API endpoint for processing videos - requires login"""
     try:
+        # Check if user is logged in
+        user = get_current_user()
+        if not user:
+            return jsonify({
+                'error': 'Please login to translate videos',
+                'login_required': True
+            }), 401
+
+        # Check if user has remaining minutes
+        remaining = user.get_remaining_minutes()
+        if remaining <= 0:
+            return jsonify({
+                'error': 'You have used all your minutes for this month. Please upgrade your plan.',
+                'quota_exceeded': True,
+                'tier': user.tier.to_dict() if user.tier else None
+            }), 403
+
         data = request.json
         youtube_url = data.get('url')
 
@@ -417,8 +445,11 @@ def process_video():
             video = db.create_video(video_id, "Processing...", youtube_url)
 
         # Start background processing (Celery or threading)
+        # Pass user_id to charge minutes after completion
+        user_id = user.id if user else None
+
         if USE_CELERY:
-            task = process_video_task.delay(video_id, youtube_url)
+            task = process_video_task.delay(video_id, youtube_url, user_id)
             task_id_map[video_id] = task.id
         else:
             # Initialize processing status for threading mode
@@ -430,7 +461,7 @@ def process_video():
                 }
             thread = threading.Thread(
                 target=process_video_threading,
-                args=(video_id, youtube_url)
+                args=(video_id, youtube_url, user_id)
             )
             thread.daemon = True
             thread.start()

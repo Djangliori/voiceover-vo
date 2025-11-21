@@ -308,6 +308,112 @@ input[type="text"]:focus {
     border: none;
 }
 
+/* User Bar */
+.user-bar {
+    background: #fff;
+    border-bottom: 1px solid #e0e6ed;
+    padding: 10px 20px;
+}
+
+.user-bar-content {
+    max-width: 800px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.user-email {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.user-tier {
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.tier-free { background: #e2e8f0; color: #4a5568; }
+.tier-basic { background: #c6f6d5; color: #276749; }
+.tier-pro { background: #bee3f8; color: #2b6cb0; }
+.tier-unlimited { background: #faf089; color: #975a16; }
+
+.user-usage {
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.guest-text {
+    color: var(--text-secondary);
+}
+
+.user-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.btn-login,
+.btn-register,
+.btn-admin,
+.btn-logout-sm {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+}
+
+.btn-login {
+    background: var(--primary-color);
+    color: white;
+}
+
+.btn-login:hover {
+    background: #357abd;
+}
+
+.btn-register {
+    background: #e0e6ed;
+    color: var(--text-primary);
+}
+
+.btn-register:hover {
+    background: #d0d6dd;
+}
+
+.btn-admin {
+    background: #faf089;
+    color: #975a16;
+}
+
+.btn-admin:hover {
+    background: #f6e05e;
+}
+
+.btn-logout-sm {
+    background: #fee2e2;
+    color: #c53030;
+}
+
+.btn-logout-sm:hover {
+    background: #fecaca;
+}
+
 /* Responsive */
 @media (max-width: 600px) {
     h1 {
@@ -324,5 +430,14 @@ input[type="text"]:focus {
     .error-card,
     .info-box {
         padding: 20px;
+    }
+
+    .user-bar-content {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .user-info {
+        justify-content: center;
     }
 }
