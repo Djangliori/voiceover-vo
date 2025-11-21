@@ -100,9 +100,20 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 
-# Register auth blueprint
-from src.auth import auth_bp, init_admin_user, login_required, get_current_user
-app.register_blueprint(auth_bp)
+# Register auth blueprint (optional - for Railway deployment)
+try:
+    from src.auth import auth_bp, init_admin_user, login_required, get_current_user
+    app.register_blueprint(auth_bp)
+    AUTH_ENABLED = True
+    logger.info("Authentication system enabled")
+except Exception as e:
+    logger.warning(f"Authentication system disabled: {e}")
+    AUTH_ENABLED = False
+    # Define dummy functions when auth is disabled
+    def get_current_user():
+        return None
+    def login_required(f):
+        return f
 
 # Initialize database and storage
 db = Database()
@@ -110,7 +121,8 @@ db = Database()
 # Initialize default tiers and admin user
 try:
     db.init_default_tiers()
-    init_admin_user()
+    if AUTH_ENABLED:
+        init_admin_user()
 except Exception as e:
     logger.warning(f"Failed to initialize tiers/admin: {e}")
 
@@ -394,23 +406,24 @@ def admin_panel():
 @app.route('/process', methods=['POST'])
 @validate_json_request(required_fields=['url'])
 def process_video():
-    """API endpoint for processing videos - requires login"""
+    """API endpoint for processing videos - requires login if auth enabled"""
     try:
-        # Check if user is logged in
-        user = get_current_user()
-        if not user:
-            return jsonify({
-                'error': 'Please login to translate videos',
-                'login_required': True
-            }), 401
+        # Check authentication only if enabled
+        if AUTH_ENABLED:
+            user = get_current_user()
+            if not user:
+                return jsonify({
+                    'error': 'Please login to translate videos',
+                    'login_required': True
+                }), 401
 
-        # Check if user has remaining minutes
-        remaining = user.get_remaining_minutes()
-        if remaining <= 0:
-            return jsonify({
-                'error': 'You have used all your minutes for this month. Please upgrade your plan.',
-                'quota_exceeded': True,
-                'tier': user.tier.to_dict() if user.tier else None
+            # Check if user has remaining minutes
+            remaining = user.get_remaining_minutes()
+            if remaining <= 0:
+                return jsonify({
+                    'error': 'You have used all your minutes for this month. Please upgrade your plan.',
+                    'quota_exceeded': True,
+                    'tier': user.tier.to_dict() if user.tier else None
             }), 403
 
         data = request.json
@@ -460,7 +473,10 @@ def process_video():
 
         # Start background processing (Celery or threading)
         # Pass user_id to charge minutes after completion
-        user_id = user.id if user else None
+        user_id = None
+        if AUTH_ENABLED:
+            user = get_current_user()
+            user_id = user.id if user else None
 
         if USE_CELERY:
             task = process_video_task.delay(video_id, youtube_url, user_id)
