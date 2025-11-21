@@ -296,6 +296,20 @@ def process_video_threading(video_id, youtube_url, user_id=None):
         db.update_video_status(video_id, 'failed', error_message=error_msg)
 
 
+@app.route('/health')
+def health_check():
+    """Health check endpoint for Railway deployment debugging"""
+    import sys
+    from datetime import datetime
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'redis': USE_CELERY,
+        'database': 'PostgreSQL' if os.getenv('DATABASE_URL') else 'SQLite',
+        'storage': 'R2' if storage else 'Local',
+        'python_version': sys.version
+    })
+
 @app.route('/')
 def index():
     """Main page"""
