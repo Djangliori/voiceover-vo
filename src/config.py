@@ -19,9 +19,6 @@ class Config:
     ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
     RAPIDAPI_KEY = os.getenv('RAPIDAPI_KEY')
 
-    # Google Cloud (deprecated but kept for compatibility)
-    GOOGLE_APPLICATION_CREDENTIALS = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', 'google-credentials.json')
-
     # Flask Configuration
     FLASK_PORT = int(os.getenv('FLASK_PORT', 5001))
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')

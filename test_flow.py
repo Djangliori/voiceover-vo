@@ -26,7 +26,6 @@ print("\n1. CHECKING ENVIRONMENT VARIABLES...")
 env_vars = [
     "OPENAI_API_KEY",
     "ELEVENLABS_API_KEY",
-    "GOOGLE_APPLICATION_CREDENTIALS",
     "FLASK_PORT",
     "MAX_VIDEO_LENGTH",
     "OUTPUT_DIR",
@@ -184,7 +183,6 @@ else:
 # Additional checks based on audit findings
 print("\n6. CODE QUALITY ISSUES FROM AUDIT:")
 code_issues = [
-    "Dead code: Google Cloud Speech-to-Text method (~50 lines) never called",
     "Unused imports in app.py: sys, traceback, uuid, urlparse, parse_qs, AsyncResult",
     "Memory leak risk: Unclosed HTTP sessions in downloader.py",
     "Resource leak: Database sessions not properly closed in some paths",
