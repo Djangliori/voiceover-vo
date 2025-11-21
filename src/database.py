@@ -97,8 +97,12 @@ class Database:
         """
         session = self.get_session()
         try:
+            # Expire all to force fresh data from database
+            session.expire_all()
             video = session.query(Video).filter_by(video_id=video_id).first()
             if video:
+                # Refresh to get latest data
+                session.refresh(video)
                 # Detach from session to avoid LazyLoadingError after session closes
                 session.expunge(video)
             return video
