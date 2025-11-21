@@ -1,10 +1,10 @@
 # Explicitly set provider for faster detection
 # Build optimization: Removed PyTorch/Whisper for 10x faster deploys
 [providers]
-python = "3.12"
+python = "3.11"
 
 [phases.setup]
-nixPkgs = ["python312", "ffmpeg"]
+nixPkgs = ["python311", "ffmpeg"]
 
 [phases.install]
 # Use pip cache for faster rebuilds (cached between deploys)
