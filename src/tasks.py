@@ -133,12 +133,17 @@ def process_video_task(self, video_id, youtube_url):
             else:
                 update_progress(f"📥 {msg}", 5)
 
-        video_info = downloader.download_video(
-            youtube_url,
-            progress_callback=download_progress_callback
-        )
-        video_title = video_info['title']
-        update_progress(f"✅ Video downloaded: {video_title}", 20)
+        try:
+            video_info = downloader.download_video(
+                youtube_url,
+                progress_callback=download_progress_callback
+            )
+            video_title = video_info['title']
+            update_progress(f"✅ Video downloaded: {video_title}", 20)
+            logger.info(f"Download complete for {video_id}: {video_title}")
+        except Exception as e:
+            logger.error(f"Download failed for {video_id}: {str(e)}")
+            raise
 
         # Update database with title
         self.db.update_video_status(video_id, 'processing')
@@ -151,13 +156,21 @@ def process_video_task(self, video_id, youtube_url):
 
         # Step 2: Transcribe audio (20-35%)
         update_progress("🎵 Extracting audio from video...", 21)
+        logger.info(f"Starting transcription for {video_id}")
+
         update_progress("🎤 Starting speech recognition with OpenAI Whisper...", 23)
-        segments = transcriber.transcribe(
-            video_info['audio_path'],
-            progress_callback=lambda msg: update_progress(f"🎤 {msg}", 28)
-        )
-        segments = transcriber.merge_short_segments(segments)
-        update_progress(f"✅ Transcribed speech into {len(segments)} segments", 35)
+        try:
+            segments = transcriber.transcribe(
+                video_info['audio_path'],
+                progress_callback=lambda msg: update_progress(f"🎤 {msg}", 28)
+            )
+            segments = transcriber.merge_short_segments(segments)
+            update_progress(f"✅ Transcribed speech into {len(segments)} segments", 35)
+            logger.info(f"Transcription complete for {video_id}: {len(segments)} segments")
+        except Exception as e:
+            logger.error(f"Transcription failed for {video_id}: {str(e)}", exc_info=True)
+            update_progress(f"❌ Transcription failed: {str(e)}", 35)
+            raise
 
         # Step 3: Translate to Georgian (35-50%)
         update_progress("🌐 Starting translation to Georgian...", 36)

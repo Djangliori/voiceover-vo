@@ -234,7 +234,8 @@ class VideoDownloader:
             logger.info(f"Downloading from: {download_url[:100]}...")
 
             with requests.Session() as download_session:
-                video_response = download_session.get(download_url, stream=True, timeout=60)
+                # Increased timeout for larger videos (5 minutes)
+                video_response = download_session.get(download_url, stream=True, timeout=300)
                 video_response.raise_for_status()
 
                 total_size = int(video_response.headers.get('content-length', 0))
@@ -249,7 +250,11 @@ class VideoDownloader:
                                 percent = (downloaded / total_size) * 100
                                 progress_callback(f"Downloading... {percent:.1f}% ({downloaded//1024//1024}MB/{total_size//1024//1024}MB)")
 
-            logger.info("Video download complete")
+            logger.info(f"Video download complete: {downloaded//1024//1024}MB downloaded")
+
+            # Verify file was fully downloaded
+            if total_size > 0 and downloaded < total_size:
+                logger.warning(f"Incomplete download: {downloaded}/{total_size} bytes")
 
             # Extract audio
             if progress_callback:
