@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from src.downloader import VideoDownloader
 from src.transcriber import Transcriber
 from src.translator import Translator
-from src.tts import TextToSpeech
+from src.tts_factory import get_tts_provider
 from src.audio_mixer import AudioMixer
 from src.video_processor import VideoProcessor
 from src.database import Database, Video
@@ -126,7 +126,7 @@ def process_video_task(self, video_id, youtube_url):
         downloader = VideoDownloader(temp_dir=temp_dir)
         transcriber = Transcriber()
         translator = Translator()
-        tts = TextToSpeech()
+        tts = get_tts_provider()  # Uses TTS_PROVIDER env var (elevenlabs or gemini)
         mixer = AudioMixer(
             original_volume=original_volume,
             voiceover_volume=voiceover_volume

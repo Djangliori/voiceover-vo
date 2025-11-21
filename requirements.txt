@@ -16,6 +16,9 @@ requests>=2.31.0  # Used for RapidAPI calls
 # ElevenLabs API (for Georgian TTS)
 elevenlabs==2.23.0
 
+# Google Cloud TTS with Gemini (alternative TTS provider)
+google-cloud-texttospeech>=2.29.0
+
 # Video Download (fallback when RapidAPI not available)
 yt-dlp>=2024.11.18
 

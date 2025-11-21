@@ -1,10 +1,12 @@
 """
 Text-to-Speech Module
 Generates Georgian voiceover using ElevenLabs API
+Supports parallel requests for faster processing
 """
 
 import os
 import ffmpeg
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from elevenlabs import ElevenLabs
 from pathlib import Path
 
@@ -24,9 +26,13 @@ class TextToSpeech:
         # Model settings - using Eleven v3 for best quality
         self.model_id = "eleven_v3"  # Most expressive model
 
+        # Parallel processing settings
+        # ElevenLabs concurrent limits: Free=2, Starter=3, Creator=5, Pro=10, Scale=15
+        self.max_workers = int(os.getenv('ELEVENLABS_MAX_CONCURRENT', '3'))
+
     def generate_voiceover(self, segments, temp_dir="temp", progress_callback=None):
         """
-        Generate Georgian voiceover for all segments
+        Generate Georgian voiceover for all segments using parallel requests
 
         Args:
             segments: List of segments with 'translated_text', 'start', 'end'
@@ -40,55 +46,89 @@ class TextToSpeech:
         temp_path.mkdir(exist_ok=True)
 
         if progress_callback:
-            progress_callback(f"Generating Georgian voiceover for {len(segments)} segments...")
+            progress_callback(f"Generating Georgian voiceover for {len(segments)} segments (parallel)...")
 
-        voiceover_segments = []
+        # Process segments in parallel
+        results = {}
+        completed_count = 0
+        total_segments = len(segments)
 
-        for i, segment in enumerate(segments):
-            # Generate speech for this segment
-            audio_data = self._synthesize_speech(segment['translated_text'])
+        def process_segment(args):
+            """Process a single segment - runs in thread pool"""
+            idx, segment = args
+            return idx, self._process_single_segment(segment, idx, temp_path)
 
-            # Save to temporary file
-            audio_filename = f"segment_{i:04d}.mp3"
-            audio_path = temp_path / audio_filename
+        # Use ThreadPoolExecutor for parallel API calls
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # Submit all tasks
+            futures = {
+                executor.submit(process_segment, (i, seg)): i
+                for i, seg in enumerate(segments)
+            }
 
-            # Save the audio data
-            with open(audio_path, 'wb') as f:
-                for chunk in audio_data:
-                    f.write(chunk)
+            # Process completed tasks as they finish
+            for future in as_completed(futures):
+                idx, result = future.result()
+                results[idx] = result
+                completed_count += 1
 
-            # Convert MP3 to WAV for consistency with rest of pipeline
-            wav_filename = f"segment_{i:04d}.wav"
-            wav_path = temp_path / wav_filename
+                if progress_callback:
+                    progress_callback(f"Generated {completed_count}/{total_segments} voiceover segments")
 
-            # Use ffmpeg-python for conversion
-            stream = ffmpeg.input(str(audio_path))
-            stream = ffmpeg.output(stream, str(wav_path), acodec='pcm_s16le', ar='44100')
-            ffmpeg.run(stream, overwrite_output=True, quiet=True)
-
-            # Get audio duration using ffmpeg probe
-            probe = ffmpeg.probe(str(wav_path))
-            duration = float(probe['streams'][0]['duration'])
-
-            # Remove the MP3 file
-            audio_path.unlink()
-
-            # Add audio path to segment
-            voiceover_segment = segment.copy()
-            voiceover_segment['audio_path'] = str(wav_path)
-
-            # Calculate audio duration
-            voiceover_segment['audio_duration'] = duration
-
-            voiceover_segments.append(voiceover_segment)
-
-            if progress_callback and (i + 1) % 5 == 0:
-                progress_callback(f"Generated {i + 1}/{len(segments)} voiceover segments")
+        # Sort results by original index to maintain order
+        voiceover_segments = [results[i] for i in range(len(segments))]
 
         if progress_callback:
             progress_callback(f"Voiceover generation complete: {len(voiceover_segments)} segments")
 
         return voiceover_segments
+
+    def _process_single_segment(self, segment, index, temp_path):
+        """
+        Process a single segment: synthesize speech, save, and convert to WAV
+
+        Args:
+            segment: Segment dict with 'translated_text', 'start', 'end'
+            index: Segment index for filename
+            temp_path: Path object for temp directory
+
+        Returns:
+            Updated segment dict with 'audio_path' and 'audio_duration'
+        """
+        # Generate speech for this segment
+        audio_data = self._synthesize_speech(segment['translated_text'])
+
+        # Save to temporary file
+        audio_filename = f"segment_{index:04d}.mp3"
+        audio_path = temp_path / audio_filename
+
+        # Save the audio data
+        with open(audio_path, 'wb') as f:
+            for chunk in audio_data:
+                f.write(chunk)
+
+        # Convert MP3 to WAV for consistency with rest of pipeline
+        wav_filename = f"segment_{index:04d}.wav"
+        wav_path = temp_path / wav_filename
+
+        # Use ffmpeg-python for conversion
+        stream = ffmpeg.input(str(audio_path))
+        stream = ffmpeg.output(stream, str(wav_path), acodec='pcm_s16le', ar='44100')
+        ffmpeg.run(stream, overwrite_output=True, quiet=True)
+
+        # Get audio duration using ffmpeg probe
+        probe = ffmpeg.probe(str(wav_path))
+        duration = float(probe['streams'][0]['duration'])
+
+        # Remove the MP3 file
+        audio_path.unlink()
+
+        # Create result segment
+        voiceover_segment = segment.copy()
+        voiceover_segment['audio_path'] = str(wav_path)
+        voiceover_segment['audio_duration'] = duration
+
+        return voiceover_segment
 
     def _synthesize_speech(self, text):
         """
