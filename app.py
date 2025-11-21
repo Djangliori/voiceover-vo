@@ -49,14 +49,21 @@ try:
 
     # Try to connect to Redis to verify it's actually available
     redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-    r = redis.from_url(redis_url, socket_connect_timeout=1)
+    # Increased timeout for Railway's internal network
+    r = redis.from_url(redis_url, socket_connect_timeout=5, socket_keepalive=True)
     r.ping()
 
     USE_CELERY = True
     logger.info("celery_available", status="using celery for task processing", redis_url=redis_url)
 except Exception as e:
     USE_CELERY = False
-    logger.warning("celery_unavailable", error=str(e), fallback="threading")
+    # Log detailed error for debugging
+    logger.error("celery_unavailable",
+                error=str(e),
+                redis_url=os.getenv('REDIS_URL', 'NOT SET'),
+                fallback="threading",
+                hint="Check REDIS_URL environment variable on Railway!")
+    logger.warning("IMPORTANT: Running in threading mode - Celery worker will NOT receive tasks!")
     import threading
 
 app = Flask(__name__)
