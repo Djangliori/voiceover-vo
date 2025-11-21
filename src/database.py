@@ -8,6 +8,9 @@ from datetime import datetime
 from sqlalchemy import create_engine, Column, String, DateTime, Integer, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, scoped_session
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 Base = declarative_base()
 
@@ -130,6 +133,37 @@ class Database:
             return video
         except Exception as e:
             session.rollback()
+            raise e
+        finally:
+            self.close_session(session)
+
+    def update_video_progress(self, video_id, status_message, progress):
+        """
+        Update video progress and status message
+
+        Args:
+            video_id: YouTube video ID
+            status_message: Current status message
+            progress: Progress percentage (0-100)
+
+        Returns:
+            Updated Video object
+        """
+        session = self.get_session()
+        try:
+            video = session.query(Video).filter_by(video_id=video_id).first()
+            if video:
+                video.processing_status = 'processing'
+                video.progress = progress
+                video.status_message = status_message
+                session.commit()
+                return video
+            else:
+                logger.error(f"Video not found for progress update: {video_id}")
+                return None
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error updating progress: {e}")
             raise e
         finally:
             self.close_session(session)

@@ -74,31 +74,13 @@ def process_video_task(self, video_id, youtube_url):
         )
 
         # IMPORTANT: Also update database so frontend can see progress
-        session = None
+        # Use direct database update to ensure it's committed
         try:
-            session = self.db.get_session()
-            video = session.query(Video).filter_by(video_id=video_id).first()
-            if video:
-                video.processing_status = 'processing'
-                video.progress = progress or 0
-                video.status_message = message
-                session.commit()
-                logger.debug(f"Database updated: video_id={video_id}, progress={progress}, message={message[:50]}...")
-            else:
-                logger.error(f"Video not found in database: {video_id}")
+            # Use the database's own method to ensure proper session handling
+            self.db.update_video_progress(video_id, message, progress or 0)
+            logger.debug(f"Database updated: video_id={video_id}, progress={progress}, message={message[:50]}...")
         except Exception as db_error:
             logger.error(f"Database update FAILED: video_id={video_id}, error={str(db_error)}", exc_info=True)
-            if session:
-                try:
-                    session.rollback()
-                except:
-                    pass
-        finally:
-            if session:
-                try:
-                    self.db.close_session(session)
-                except Exception as close_error:
-                    logger.warning(f"Failed to close session: {str(close_error)}")
 
         # Log for debugging
         logger.info("task_progress", video_id=video_id, status=message, progress=progress or 0)
