@@ -4,8 +4,12 @@ Uses OpenAI Whisper API for transcription with timestamps
 """
 
 import os
+import time
 from pathlib import Path
 import openai
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class Transcriber:
@@ -34,15 +38,46 @@ class Transcriber:
         if progress_callback:
             progress_callback("Starting Whisper API transcription...")
 
-        # OpenAI Whisper API v0.28.1 usage
-        with open(audio_path, 'rb') as audio_file:
-            response = openai.Audio.transcribe(
-                model="whisper-1",
-                file=audio_file,
-                language='en',  # Source language
-                response_format='verbose_json',  # Get timestamps
-                timestamp_granularities=['segment']  # Get segment-level timestamps
-            )
+        # Retry logic for transient OpenAI errors
+        max_retries = 3
+        retry_delay = 5  # seconds
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                # OpenAI Whisper API v0.28.1 usage
+                with open(audio_path, 'rb') as audio_file:
+                    response = openai.Audio.transcribe(
+                        model="whisper-1",
+                        file=audio_file,
+                        language='en',  # Source language
+                        response_format='verbose_json',  # Get timestamps
+                        timestamp_granularities=['segment']  # Get segment-level timestamps
+                    )
+                # Success - break out of retry loop
+                break
+            except openai.error.ServiceUnavailableError as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(f"OpenAI server overloaded, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                    if progress_callback:
+                        progress_callback(f"Server busy, retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"OpenAI transcription failed after {max_retries} attempts")
+                    raise
+            except openai.error.RateLimitError as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    wait_time = retry_delay * (2 ** attempt)
+                    logger.warning(f"OpenAI rate limit hit, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                    if progress_callback:
+                        progress_callback(f"Rate limited, retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"OpenAI transcription failed after {max_retries} attempts due to rate limiting")
+                    raise
 
         # Extract segments with timestamps from API response
         segments = []

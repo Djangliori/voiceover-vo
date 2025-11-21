@@ -36,6 +36,7 @@ class CallbackTask(Task):
     def db(self):
         if self._db is None:
             self._db = Database()
+            logger.info("Celery task initialized database connection")
         return self._db
 
     @property
@@ -278,7 +279,6 @@ def process_video_task(self, video_id, youtube_url):
 
         # Smart retry logic: Only retry on transient errors
         # Do NOT retry on permanent failures that waste API quota
-        should_retry = False
         error_lower = error_msg.lower()
 
         # Don't retry these permanent failures (they waste API quota):
@@ -308,26 +308,29 @@ def process_video_task(self, video_id, youtube_url):
 
         if not is_non_retriable and self.request.retries < self.max_retries:
             # Only retry on transient errors (network issues, timeouts, etc.)
-            should_retry = True
             logger.info("task_retry", video_id=video_id, retry_count=self.request.retries + 1, reason="transient_error")
+            # Cleanup before retry
+            try:
+                downloader.cleanup(video_id)
+            except Exception:
+                pass
             raise self.retry(exc=exc, countdown=60)
         else:
             if is_non_retriable:
                 logger.warning("task_not_retrying", video_id=video_id, reason="non_retriable_error")
+            else:
+                logger.error("task_failed_all_retries", video_id=video_id, max_retries=self.max_retries)
 
-    finally:
-        # Always cleanup temporary files, regardless of success or failure
-        try:
-            downloader.cleanup(video_id)
-            logger.info("temp_cleanup", video_id=video_id, status="success")
-        except Exception as cleanup_exc:
-            logger.warning("temp_cleanup_failed", video_id=video_id, error=str(cleanup_exc))
+            # Cleanup on final failure
+            try:
+                downloader.cleanup(video_id)
+                logger.info("temp_cleanup", video_id=video_id, status="success")
+            except Exception as cleanup_exc:
+                logger.warning("temp_cleanup_failed", video_id=video_id, error=str(cleanup_exc))
 
-        # If all retries exhausted, return failure
-        logger.error("task_failed_all_retries", video_id=video_id, max_retries=self.max_retries)
-        return {
-            'status': 'failed',
-            'video_id': video_id,
-            'error': error_msg,
-            'progress': 0
-        }
+            return {
+                'status': 'failed',
+                'video_id': video_id,
+                'error': error_msg,
+                'progress': 0
+            }

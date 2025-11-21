@@ -31,6 +31,9 @@ celery_app.conf.update(
     timezone='UTC',
     enable_utc=True,
 
+    # Broker connection settings (Celery 6.0+)
+    broker_connection_retry_on_startup=True,
+
     # Task execution settings
     task_acks_late=True,  # Acknowledge tasks after execution
     task_reject_on_worker_lost=True,  # Retry if worker crashes

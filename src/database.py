@@ -66,10 +66,19 @@ class Database:
         if not database_url:
             # Fall back to SQLite for local development
             database_url = 'sqlite:///videos.db'
+            logger.warning("DATABASE_URL not set! Using SQLite fallback. This will cause issues if Flask and Celery use different databases!")
 
         # Fix for Railway's postgres:// URL (needs to be postgresql://)
         if database_url.startswith('postgres://'):
             database_url = database_url.replace('postgres://', 'postgresql://', 1)
+
+        # Log which database we're connecting to (mask password)
+        safe_url = database_url
+        if '@' in safe_url:
+            # Mask password in URL for logging
+            import re
+            safe_url = re.sub(r'://[^:]+:[^@]+@', '://***:***@', safe_url)
+        logger.info(f"Database connection: {safe_url}")
 
         self.engine = create_engine(database_url, pool_pre_ping=True)
         self.Session = scoped_session(sessionmaker(bind=self.engine))

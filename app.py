@@ -541,9 +541,20 @@ def health_check():
         except Exception as e:
             redis_status = f"error: {str(e)}"
 
+    # Show database URL (masked) for debugging
+    db_url = os.getenv('DATABASE_URL', 'NOT SET (using SQLite!)')
+    if db_url and '@' in db_url:
+        # Mask password
+        import re
+        db_url = re.sub(r'://[^:]+:[^@]+@', '://***:***@', db_url)
+
     return jsonify({
         'status': 'healthy',
         'mode': 'celery' if USE_CELERY else 'threading',
+        'database': {
+            'url': db_url,
+            'type': 'PostgreSQL' if os.getenv('DATABASE_URL') else 'SQLite (LOCAL!)'
+        },
         'redis': {
             'url': redis_url if redis_url != 'NOT SET' else None,
             'status': redis_status
