@@ -74,17 +74,22 @@ class AudioMixer:
         if progress_callback:
             progress_callback(f"Mixing {len(voiceover_segments)} voiceover segments...")
 
-        # Create a silent track the same length as the original
-        # We'll overlay voiceover segments onto this
-        voiceover_track = AudioSegment.silent(duration=duration_ms)
+        # Build the voiceover track by placing each segment at its timestamp
+        # We'll construct this by concatenating: silence + segment + silence + segment...
+        # This avoids any overlay operations that might affect volume
 
-        logger.info(f"Created silent voiceover track: {duration_ms}ms")
+        logger.info(f"Building voiceover track from {len(voiceover_segments)} segments")
 
-        # Overlay each voiceover segment at its timestamp
-        for i, segment in enumerate(voiceover_segments):
+        # Sort segments by start time to ensure correct order
+        sorted_segments = sorted(voiceover_segments, key=lambda s: s['start'])
+
+        # Build the voiceover track piece by piece
+        voiceover_track = AudioSegment.empty()
+        current_position_ms = 0
+
+        for i, segment in enumerate(sorted_segments):
             start_time = segment['start']
             segment_path = segment['audio_path']
-
             start_ms = int(start_time * 1000)
 
             try:
@@ -96,24 +101,36 @@ class AudioMixer:
                     vo_volume_db = 20 * math.log10(self.voiceover_volume)
                     voiceover_clip = voiceover_clip + vo_volume_db
 
-                # Overlay at the correct position
-                # pydub's overlay adds the audio on top (sums the waveforms)
-                voiceover_track = voiceover_track.overlay(voiceover_clip, position=start_ms)
+                # Add silence from current position to this segment's start
+                if start_ms > current_position_ms:
+                    silence_duration = start_ms - current_position_ms
+                    voiceover_track += AudioSegment.silent(duration=silence_duration)
+                    current_position_ms = start_ms
 
-                logger.debug(f"Overlayed segment {i} at {start_ms}ms (duration: {len(voiceover_clip)}ms)")
+                # Add the voiceover segment
+                voiceover_track += voiceover_clip
+                current_position_ms += len(voiceover_clip)
+
+                logger.debug(f"Added segment {i} at {start_ms}ms (duration: {len(voiceover_clip)}ms)")
 
             except Exception as e:
-                logger.error(f"Failed to overlay segment {i}: {e}")
+                logger.error(f"Failed to add segment {i}: {e}")
                 raise
 
             if progress_callback and (i + 1) % 5 == 0:
                 progress_callback(f"Positioned {i + 1}/{len(voiceover_segments)} voiceover segments")
 
+        # Pad with silence to match original duration if needed
+        if len(voiceover_track) < duration_ms:
+            voiceover_track += AudioSegment.silent(duration=duration_ms - len(voiceover_track))
+
+        logger.info(f"Voiceover track built: {len(voiceover_track)}ms")
+
         if progress_callback:
             progress_callback("Combining audio tracks...")
 
         # Now mix the lowered original with the voiceover track
-        # pydub's overlay will sum the two audio tracks
+        # This is just ONE overlay operation - no volume reduction issue
         final_mix = original_lowered.overlay(voiceover_track)
 
         if progress_callback:
