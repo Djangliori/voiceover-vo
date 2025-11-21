@@ -40,8 +40,11 @@ class AudioMixer:
         if progress_callback:
             progress_callback("Loading original audio...")
 
-        # Load original audio
+        # Load original audio and normalize to 44.1kHz mono for consistency
         original = AudioSegment.from_wav(original_audio_path)
+
+        # Ensure consistent format: 44.1kHz mono
+        original = original.set_frame_rate(44100).set_channels(1)
         duration_ms = len(original)
 
         logger.info(f"Original audio duration: {duration_ms}ms")
@@ -84,7 +87,9 @@ class AudioMixer:
         sorted_segments = sorted(voiceover_segments, key=lambda s: s['start'])
 
         # Build the voiceover track piece by piece
-        voiceover_track = AudioSegment.empty()
+        # Use consistent format: 44.1kHz mono
+        voiceover_track = AudioSegment.silent(duration=0, frame_rate=44100)
+        voiceover_track = voiceover_track.set_channels(1)
         current_position_ms = 0
 
         for i, segment in enumerate(sorted_segments):
@@ -93,8 +98,9 @@ class AudioMixer:
             start_ms = int(start_time * 1000)
 
             try:
-                # Load the voiceover segment
+                # Load the voiceover segment and normalize format
                 voiceover_clip = AudioSegment.from_wav(segment_path)
+                voiceover_clip = voiceover_clip.set_frame_rate(44100).set_channels(1)
 
                 # Apply volume adjustment if needed
                 if self.voiceover_volume != 1.0 and self.voiceover_volume > 0:
@@ -104,7 +110,9 @@ class AudioMixer:
                 # Add silence from current position to this segment's start
                 if start_ms > current_position_ms:
                     silence_duration = start_ms - current_position_ms
-                    voiceover_track += AudioSegment.silent(duration=silence_duration)
+                    silence = AudioSegment.silent(duration=silence_duration, frame_rate=44100)
+                    silence = silence.set_channels(1)
+                    voiceover_track += silence
                     current_position_ms = start_ms
 
                 # Add the voiceover segment
@@ -122,7 +130,9 @@ class AudioMixer:
 
         # Pad with silence to match original duration if needed
         if len(voiceover_track) < duration_ms:
-            voiceover_track += AudioSegment.silent(duration=duration_ms - len(voiceover_track))
+            padding = AudioSegment.silent(duration=duration_ms - len(voiceover_track), frame_rate=44100)
+            padding = padding.set_channels(1)
+            voiceover_track += padding
 
         logger.info(f"Voiceover track built: {len(voiceover_track)}ms")
 
