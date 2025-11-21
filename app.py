@@ -56,10 +56,8 @@ try:
     for attempt in range(max_retries):
         try:
             # Increased timeout for Railway's internal network
-            # Note: socket_keepalive_options can cause "Error 22" on some systems
-            r = redis.from_url(redis_url,
-                             socket_connect_timeout=10,
-                             socket_keepalive=True)
+            # socket_keepalive causes "Error 22" on Railway, so disabled
+            r = redis.from_url(redis_url, socket_connect_timeout=10)
             r.ping()
             USE_CELERY = True
             logger.info("celery_available",
