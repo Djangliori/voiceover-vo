@@ -10,6 +10,7 @@ import time
 import requests
 from pathlib import Path
 from src.logging_config import get_logger
+from src.api_tracker import api_tracker
 
 logger = get_logger(__name__)
 
@@ -67,6 +68,14 @@ class VideoDownloader:
 
         logger.info("Fetching video details from RapidAPI...")
 
+        # Check API usage limits BEFORE making request
+        can_proceed, message = api_tracker.can_make_request()
+        if not can_proceed:
+            logger.error(f"API limit reached: {message}")
+            if progress_callback:
+                progress_callback(f"Error: {message}")
+            raise Exception(message)
+
         # Rate limiting: Ensure minimum time between API calls
         global LAST_API_CALL_TIME
         current_time = time.time()
@@ -85,6 +94,7 @@ class VideoDownloader:
 
                 # Handle rate limiting specifically
                 if response.status_code == 429:
+                    api_tracker.record_request(success=False)  # Record failed request
                     error_msg = "RapidAPI quota exceeded. Please check your API limits or upgrade your plan."
                     logger.error(error_msg)
                     if progress_callback:
@@ -93,10 +103,13 @@ class VideoDownloader:
 
                 # Handle other HTTP errors
                 if response.status_code != 200:
+                    api_tracker.record_request(success=False)  # Record failed request
                     error_msg = f"RapidAPI error: HTTP {response.status_code}"
                     logger.error(error_msg)
                     raise Exception(error_msg)
 
+                # Record successful API request
+                api_tracker.record_request(success=True)
                 data = response.json()
 
             # Check for API-level errors

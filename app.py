@@ -484,6 +484,23 @@ def debug_video(video_id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/usage-stats', methods=['GET'])
+def api_usage_stats():
+    """Get API usage statistics"""
+    try:
+        from src.api_tracker import api_tracker
+        stats = api_tracker.get_usage_stats()
+        return jsonify({
+            'success': True,
+            'stats': stats
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 if __name__ == '__main__':
     port = int(os.getenv('PORT', os.getenv('FLASK_PORT', 5000)))
 
