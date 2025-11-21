@@ -119,7 +119,7 @@ def process_video_threading(video_id, youtube_url):
 
         # Initialize components
         downloader = VideoDownloader(temp_dir=app.config['TEMP_DIR'])
-        transcriber = Transcriber(use_google_cloud=False)
+        transcriber = Transcriber()
         translator = Translator()
         tts = TextToSpeech()
         mixer = AudioMixer(

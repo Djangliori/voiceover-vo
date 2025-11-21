@@ -109,7 +109,7 @@ def process_video_task(self, video_id, youtube_url):
 
         # Initialize components
         downloader = VideoDownloader(temp_dir=temp_dir)
-        transcriber = Transcriber(use_google_cloud=False)
+        transcriber = Transcriber()
         translator = Translator()
         tts = TextToSpeech()
         mixer = AudioMixer(

@@ -129,7 +129,7 @@ Do not add any explanations, just provide the translations."""
             Translated text
         """
         try:
-            response = self.client.chat.completions.create(
+            response = openai.ChatCompletion.create(
                 model="gpt-4o",
                 messages=[
                     {
@@ -144,11 +144,10 @@ Only respond with the translation, no explanations."""
                         "content": f"Translate to Georgian: {text}"
                     }
                 ],
-                temperature=0.3,
-                timeout=30.0  # Add 30 second timeout
+                temperature=0.3
             )
 
-            return response.choices[0].message.content.strip()
+            return response['choices'][0]['message']['content'].strip()
 
         except Exception as e:
             # Log error properly instead of using print
