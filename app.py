@@ -326,6 +326,7 @@ def process_video():
                 return jsonify({
                     'success': True,
                     'video_id': video_id,
+                    'job_id': video_id,  # Include for consistency
                     'already_processed': True,
                     'r2_url': video.r2_url
                 })
@@ -334,6 +335,7 @@ def process_video():
                 return jsonify({
                     'success': True,
                     'video_id': video_id,
+                    'job_id': video_id,  # Include so JS can poll status
                     'already_processing': True,
                     'message': 'Video is already being processed. Please wait.'
                 })

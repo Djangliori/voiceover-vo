@@ -131,7 +131,13 @@ async function processVideo() {
             throw new Error(data.error || 'Processing failed');
         }
 
-        currentJobId = data.job_id;
+        // If already processed, redirect to player immediately
+        if (data.already_processed) {
+            window.location.href = `/watch?v=${data.video_id}`;
+            return;
+        }
+
+        currentJobId = data.job_id || data.video_id;
 
         // Start polling for status immediately
         startStatusPolling();
