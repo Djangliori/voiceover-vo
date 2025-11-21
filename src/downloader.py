@@ -1,7 +1,7 @@
 """
 YouTube Video Downloader Module
-Downloads YouTube videos using YouTube Video FAST Downloader 24/7 API
-Version: 4.0.1 - Switched to FAST API for better reliability
+Downloads YouTube videos using YouTube Media Downloader (DataFanatic) API
+Version: 5.0.0 - Using DataFanatic YouTube Media Downloader
 """
 
 import os
@@ -37,10 +37,10 @@ class VideoDownloader:
             Exception: If download fails or API quota is exceeded
         """
         logger.info(f"Starting download for URL: {url}")
-        logger.info("Using YouTube Video FAST Downloader 24/7 API")
+        logger.info("Using YouTube Media Downloader (DataFanatic) API")
 
         if progress_callback:
-            progress_callback("Fetching video info from FAST API...")
+            progress_callback("Fetching video info from RapidAPI...")
 
         # Extract video ID from URL
         video_id = self._extract_video_id_from_url(url)
@@ -51,14 +51,14 @@ class VideoDownloader:
         logger.info(f"Video path: {video_path}, Audio path: {audio_path}")
 
         # Call RapidAPI to get download link
-        # Using YouTube Video FAST Downloader 24/7 API
-        rapidapi_url = f"https://youtube-video-fast-downloader-24-7.p.rapidapi.com/get-videos-info/{video_id}"
+        # Using YouTube Media Downloader (DataFanatic) API
+        rapidapi_url = "https://youtube-media-downloader.p.rapidapi.com/v2/video/details"
         headers = {
             "X-RapidAPI-Key": self.rapidapi_key,
-            "X-RapidAPI-Host": "youtube-video-fast-downloader-24-7.p.rapidapi.com"
+            "X-RapidAPI-Host": "youtube-media-downloader.p.rapidapi.com"
         }
-        # FAST API uses path parameter, not query params
-        params = {}
+        # DataFanatic uses query parameter for video ID
+        params = {"videoId": video_id}
 
         logger.info("Fetching video details from RapidAPI...")
 
@@ -89,24 +89,20 @@ class VideoDownloader:
                 logger.error(error_msg)
                 raise Exception(error_msg)
 
-            # FAST API returns different structure than DataFanatic
-            # Check for formats or videos array
-            formats = data.get('formats', [])
-            if not formats and 'videos' in data:
-                formats = data.get('videos', [])
+            # DataFanatic API response structure
+            if not data.get('videos'):
+                raise Exception("No video formats available from RapidAPI. Video may be unavailable or private.")
 
-            if not formats:
-                raise Exception("No video formats available from FAST API. Video may be unavailable or private.")
+            # Get video info - DataFanatic format
+            title = data.get('title', 'Unknown')
 
-            # Get video info - FAST API structure
-            title = data.get('title', data.get('videoDetails', {}).get('title', 'Unknown'))
-
-            # Get duration from various possible fields
-            duration = data.get('duration', data.get('lengthSeconds', 0))
-            if isinstance(duration, str) and duration.isdigit():
-                duration = int(duration)
-            elif not isinstance(duration, int):
-                duration = 0
+            # DataFanatic uses lengthSeconds for duration
+            duration = data.get('lengthSeconds')
+            if duration is None:
+                duration_str = data.get('duration', '0')
+                duration = int(duration_str) if duration_str and str(duration_str).isdigit() else 0
+            else:
+                duration = int(duration) if duration else 0
 
             logger.info(f"Video info: {title} (duration: {duration}s)")
 
@@ -115,78 +111,41 @@ class VideoDownloader:
                 logger.warning(f"Could not get video title, using video ID: {video_id}")
                 title = f"Video {video_id}"
 
-            # Find best quality MP4 video from formats
-            videos = formats
+            # Get videos array from DataFanatic
+            videos = data.get('videos', [])
 
             if not videos:
                 raise Exception("No video formats available from RapidAPI")
 
-            # Handle FAST API response format
+            # Handle DataFanatic response format
             if videos and isinstance(videos[0], str):
                 # If videos is a list of strings (URLs), use the first one
                 download_url = videos[0]
                 logger.info(f"Using first available video URL")
                 best_video = {'quality': 'default'}
             else:
-                # FAST API returns format objects with different fields
-                # Look for MP4 formats with video
-                mp4_formats = []
-                for f in videos:
-                    if isinstance(f, dict):
-                        # Check if it's a video format (not audio-only)
-                        has_video = (
-                            f.get('vcodec') != 'none' and
-                            f.get('height') is not None
-                        )
-                        # Check if it's MP4 or compatible
-                        is_mp4 = (
-                            'mp4' in str(f.get('ext', '')).lower() or
-                            'mp4' in str(f.get('container', '')).lower() or
-                            'video/mp4' in str(f.get('mimeType', '')).lower()
-                        )
-                        if has_video and f.get('url'):
-                            mp4_formats.append(f)
+                # DataFanatic returns objects with 'quality' and 'url' fields
+                valid_videos = [v for v in videos if isinstance(v, dict) and v.get('url')]
 
-                if not mp4_formats:
-                    # Fallback to any format with URL
-                    valid_videos = [v for v in videos if isinstance(v, dict) and v.get('url')]
-                    if not valid_videos:
-                        raise Exception("No valid video formats found in FAST API response")
-                    mp4_formats = valid_videos
+                if not valid_videos:
+                    raise Exception("No valid video formats found in API response")
 
-                # Get highest quality video
+                # Get highest quality video (DataFanatic uses '720p', '1080p', etc.)
                 def get_quality_score(fmt):
-                    # Try multiple quality indicators
-                    if 'height' in fmt:
-                        return int(fmt['height'])
-                    if 'quality' in fmt:
-                        q = str(fmt['quality'])
-                        if q.endswith('p'):
-                            return int(q[:-1])
-                        if q.isdigit():
-                            return int(q)
-                    if 'qualityLabel' in fmt:
-                        q = str(fmt['qualityLabel'])
-                        if q[:-1].isdigit():
-                            return int(q[:-1])
+                    quality = fmt.get('quality', '0')
+                    if isinstance(quality, str) and quality.endswith('p'):
+                        return int(quality[:-1])
                     return 0
 
-                best_video = max(mp4_formats, key=get_quality_score, default=mp4_formats[0])
-                download_url = best_video.get('url')
-
-                quality_label = (best_video.get('qualityLabel') or
-                               best_video.get('quality') or
-                               f"{best_video.get('height', 'unknown')}p")
-                logger.info(f"Selected quality: {quality_label}")
+                best_video = max(valid_videos, key=get_quality_score, default=valid_videos[0])
+                download_url = best_video['url']
+                logger.info(f"Selected quality: {best_video.get('quality', 'unknown')}")
 
             if progress_callback:
                 if isinstance(videos[0], str):
                     progress_callback(f"Downloading video...")
                 else:
-                    quality_str = (best_video.get('qualityLabel') or
-                                 best_video.get('quality') or
-                                 f"{best_video.get('height', 'unknown')}p")
-                    progress_callback(f"Downloading video ({quality_str})...")
+                    progress_callback(f"Downloading video ({best_video.get('quality', 'unknown')})...")
 
             # Download video file with proper session management
             logger.info(f"Downloading from: {download_url[:100]}...")
