@@ -6,11 +6,16 @@ Version: 5.0.0 - Using DataFanatic YouTube Media Downloader
 
 import os
 import re
+import time
 import requests
 from pathlib import Path
 from src.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# Rate limiting for API calls
+LAST_API_CALL_TIME = 0
+MIN_TIME_BETWEEN_CALLS = 2  # Minimum 2 seconds between API calls
 
 
 class VideoDownloader:
@@ -61,6 +66,17 @@ class VideoDownloader:
         params = {"videoId": video_id}
 
         logger.info("Fetching video details from RapidAPI...")
+
+        # Rate limiting: Ensure minimum time between API calls
+        global LAST_API_CALL_TIME
+        current_time = time.time()
+        time_since_last_call = current_time - LAST_API_CALL_TIME
+        if time_since_last_call < MIN_TIME_BETWEEN_CALLS:
+            wait_time = MIN_TIME_BETWEEN_CALLS - time_since_last_call
+            logger.info(f"Rate limiting: waiting {wait_time:.1f}s before API call")
+            time.sleep(wait_time)
+
+        LAST_API_CALL_TIME = time.time()
 
         try:
             # Use session with proper cleanup

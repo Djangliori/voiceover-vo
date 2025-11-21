@@ -295,15 +295,24 @@ def process_video():
         except ValidationError as ve:
             return jsonify({'error': ve.message}), ve.status_code
 
-        # Check if already processed
+        # Check if already processed or in progress
         video = db.get_video_by_id(video_id)
-        if video and video.processing_status == 'completed':
-            return jsonify({
-                'success': True,
-                'video_id': video_id,
-                'already_processed': True,
-                'r2_url': video.r2_url
-            })
+        if video:
+            if video.processing_status == 'completed':
+                return jsonify({
+                    'success': True,
+                    'video_id': video_id,
+                    'already_processed': True,
+                    'r2_url': video.r2_url
+                })
+            elif video.processing_status == 'processing':
+                # Video is already being processed, don't start another job
+                return jsonify({
+                    'success': True,
+                    'video_id': video_id,
+                    'already_processing': True,
+                    'message': 'Video is already being processed. Please wait.'
+                })
 
         # Check concurrent job limits
         if not USE_CELERY:

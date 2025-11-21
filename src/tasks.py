@@ -48,7 +48,7 @@ class CallbackTask(Task):
         return self._storage
 
 
-@celery_app.task(bind=True, base=CallbackTask, max_retries=3)
+@celery_app.task(bind=True, base=CallbackTask, max_retries=1)  # Only 1 retry to prevent quota waste
 def process_video_task(self, video_id, youtube_url):
     """
     Celery task for processing video with Georgian voiceover
@@ -231,17 +231,26 @@ def process_video_task(self, video_id, youtube_url):
         should_retry = False
         error_lower = error_msg.lower()
 
-        # Don't retry these permanent failures:
+        # Don't retry these permanent failures (they waste API quota):
         non_retriable_errors = [
             '429',  # Rate limit
+            '401',  # Unauthorized
+            '403',  # Forbidden
             'too many requests',
-            'quota exceeded',
+            'quota',  # Any quota related error
+            'rate limit',
+            'exceeded',
             'sign in to confirm',  # Bot detection
             'invalid api response',  # Bad data from API
             'not subscribed',  # API subscription issue
-            'authentication failed',
+            'authentication',
+            'unauthorized',
+            'forbidden',
             'invalid response',
-            'no video formats available'
+            'no video formats',
+            'rapidapi',  # Any RapidAPI specific error
+            'subscription',
+            'disabled for your subscription'
         ]
 
         # Check if error is non-retriable
