@@ -6,6 +6,9 @@
 # Set PATH to include ffmpeg
 export PATH=/nix/var/nix/profiles/default/bin:/usr/bin:$PATH
 
+# Set default TTS_PROVIDER if not set (fixes Config import error)
+export TTS_PROVIDER="${TTS_PROVIDER:-elevenlabs}"
+
 # Check if running as root and create user if needed
 if [ "$EUID" -eq 0 ]; then
     echo "Running as root, creating non-root user..."
@@ -19,11 +22,11 @@ if [ "$EUID" -eq 0 ]; then
     mkdir -p /app/temp
     chown -R celeryuser:celeryuser /app/temp
 
-    # Switch to non-root user and run celery with better error handling
+    # Switch to non-root user and run celery
     echo "Starting Celery as non-root user (uid=1001)..."
-    exec su celeryuser -c "python -c 'import sys; print(\"Python:\", sys.version)' && celery -A celery_app worker --loglevel=info --concurrency=1 --pool=solo"
+    # Export TTS_PROVIDER for the su session as well
+    exec su celeryuser -c "export TTS_PROVIDER=${TTS_PROVIDER:-elevenlabs} && celery -A celery_app worker --loglevel=info --concurrency=1"
 else
     echo "Already running as non-root user (uid=$EUID)"
-    python -c 'import sys; print("Python:", sys.version)'
-    exec celery -A celery_app worker --loglevel=info --concurrency=1 --pool=solo
+    exec celery -A celery_app worker --loglevel=info --concurrency=1
 fi

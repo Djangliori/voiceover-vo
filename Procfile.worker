@@ -1,1 +1,1 @@
-worker: /bin/bash ./start-worker-simple.sh
+worker: /bin/bash ./start-worker.sh
