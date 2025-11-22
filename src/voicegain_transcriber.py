@@ -621,78 +621,81 @@ class VoicegainTranscriber:
                 # Result itself might be the words array
                 words = result
 
-            logger.info(f"Found {len(words)} words")
+            logger.info(f"Found {len(words)} words/phrases")
 
             if words:
-                # Log first word structure
-                first_word = words[0]
+                # Log first item structure
+                first_item = words[0]
                 logger.info(f"=== WORD OBJECT DEBUG (JSON) ===")
-                logger.info(f"Word type: {type(first_word)}")
-                if isinstance(first_word, dict):
-                    logger.info(f"Word keys: {first_word.keys()}")
-                    logger.info(f"First word: {json.dumps(first_word, indent=2)}")
+                logger.info(f"Item type: {type(first_item)}")
+                if isinstance(first_item, dict):
+                    logger.info(f"Item keys: {first_item.keys()}")
+                    # Check if this is a phrase with nested words
+                    if 'words' in first_item:
+                        logger.info(f"NESTED STRUCTURE DETECTED: phrases contain 'words' array")
+                        nested_words = first_item.get('words', [])
+                        if nested_words:
+                            logger.info(f"Nested word keys: {nested_words[0].keys() if isinstance(nested_words[0], dict) else 'not dict'}")
+                            logger.info(f"First nested word: {json.dumps(nested_words[0], indent=2) if isinstance(nested_words[0], dict) else nested_words[0]}")
+                    logger.info(f"First item: {json.dumps(first_item, indent=2)[:1000]}")
                 else:
-                    logger.info(f"First word (not dict): {first_word}")
+                    logger.info(f"First item (not dict): {first_item}")
 
-                # Group words into segments
-                current_segment = None
-                for word_data in words:
-                    if isinstance(word_data, dict):
-                        # Try multiple possible field names for word text
-                        text = (
-                            word_data.get("word") or
-                            word_data.get("w") or
-                            word_data.get("utterance") or
-                            word_data.get("text") or
-                            word_data.get("value") or
-                            word_data.get("content") or
-                            ""
-                        )
-
-                        # Try multiple possible field names for timing
-                        start_ms = (
-                            word_data.get("start") or
-                            word_data.get("s") or
-                            word_data.get("startMs") or
-                            word_data.get("begin") or
-                            0
-                        )
-                        end_ms = (
-                            word_data.get("end") or
-                            word_data.get("e") or
-                            word_data.get("endMs") or
-                            word_data.get("finish") or
-                            start_ms + 500
-                        )
-                    elif isinstance(word_data, str):
-                        # Word might be just a string
-                        text = word_data
-                        start_ms = 0
-                        end_ms = 500
-                    else:
+                # VOICEGAIN JSON FORMAT: Array of phrases, each phrase has 'words' array inside
+                # Structure: [{"words": [{"w": "hello", "s": 100, "e": 200}, ...], "start": 80, "duration": 580, "spk": "1"}, ...]
+                for phrase in words:
+                    if not isinstance(phrase, dict):
                         continue
 
-                    start = start_ms / 1000.0 if start_ms > 100 else start_ms  # Convert ms to seconds if > 100
-                    end = end_ms / 1000.0 if end_ms > 100 else end_ms
+                    # Get phrase-level timing
+                    phrase_start_ms = phrase.get("start", 0)
+                    phrase_duration_ms = phrase.get("duration", 0)
+                    phrase_speaker = phrase.get("spk", "0")
 
-                    # Start new segment if gap > 1 second or first word
-                    if current_segment is None or start - current_segment['end'] > 1.0:
-                        if current_segment:
-                            segments.append(current_segment)
-                        current_segment = {
-                            'text': text,
-                            'start': start,
-                            'end': end,
-                            'speaker': 'speaker_0'
-                        }
-                    else:
-                        current_segment['text'] += ' ' + text
-                        current_segment['end'] = end
+                    # Get nested words array
+                    nested_words = phrase.get("words", [])
 
-                if current_segment:
-                    segments.append(current_segment)
+                    if nested_words:
+                        # Build text from all words in this phrase
+                        phrase_text_parts = []
+                        phrase_start = None
+                        phrase_end = None
 
-                logger.info(f"Created {len(segments)} segments from {len(words)} words")
+                        for word_obj in nested_words:
+                            if isinstance(word_obj, dict):
+                                # Voicegain uses "w" for word text in nested structure
+                                word_text = (
+                                    word_obj.get("w") or
+                                    word_obj.get("word") or
+                                    word_obj.get("utterance") or
+                                    word_obj.get("text") or
+                                    ""
+                                )
+                                word_start = word_obj.get("s", word_obj.get("start", 0))
+                                word_end = word_obj.get("e", word_obj.get("end", word_start + 100))
+
+                                if word_text:
+                                    phrase_text_parts.append(word_text)
+                                    if phrase_start is None:
+                                        phrase_start = word_start
+                                    phrase_end = word_end
+                            elif isinstance(word_obj, str):
+                                phrase_text_parts.append(word_obj)
+
+                        # Create segment from this phrase
+                        if phrase_text_parts:
+                            # Convert ms to seconds
+                            start_sec = (phrase_start / 1000.0) if phrase_start and phrase_start > 100 else (phrase_start or 0)
+                            end_sec = (phrase_end / 1000.0) if phrase_end and phrase_end > 100 else (phrase_end or start_sec + 1)
+
+                            segments.append({
+                                'text': ' '.join(phrase_text_parts),
+                                'start': start_sec,
+                                'end': end_sec,
+                                'speaker': f'speaker_{phrase_speaker}'
+                            })
+
+                logger.info(f"Created {len(segments)} segments from {len(words)} phrases")
 
                 # Log first few segments
                 for i, seg in enumerate(segments[:3]):
