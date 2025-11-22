@@ -16,6 +16,7 @@ class Config:
 
     # API Keys
     VOICEGAIN_API_KEY = os.getenv('VOICEGAIN_API_KEY')
+    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')  # For Georgian translation only
     ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
     RAPIDAPI_KEY = os.getenv('RAPIDAPI_KEY')
 
@@ -81,6 +82,8 @@ class Config:
         # Check required API keys
         if not cls.VOICEGAIN_API_KEY:
             errors.append("VOICEGAIN_API_KEY is required")
+        if not cls.OPENAI_API_KEY:
+            errors.append("OPENAI_API_KEY is required for Georgian translation")
 
         # TTS provider API key (at least one required)
         if cls.TTS_PROVIDER == 'elevenlabs' and not cls.ELEVENLABS_API_KEY:

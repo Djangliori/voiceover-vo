@@ -12,6 +12,9 @@ voicegain-speech==1.104.0
 # HTTP clients
 requests>=2.31.0  # Used for RapidAPI and Voicegain calls
 
+# OpenAI API (for Georgian translation only - NOT for transcription)
+openai==0.28.0
+
 # ElevenLabs API (for Georgian TTS - fallback)
 elevenlabs==2.23.0
 
