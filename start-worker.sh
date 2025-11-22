@@ -19,10 +19,11 @@ if [ "$EUID" -eq 0 ]; then
     mkdir -p /app/temp
     chown -R celeryuser:celeryuser /app/temp
 
-    # Switch to non-root user and run celery
+    # Switch to non-root user and run celery with better error handling
     echo "Starting Celery as non-root user (uid=1001)..."
-    exec su celeryuser -c "celery -A celery_app worker --loglevel=info --concurrency=2"
+    exec su celeryuser -c "python -c 'import sys; print(\"Python:\", sys.version)' && celery -A celery_app worker --loglevel=info --concurrency=1 --pool=solo"
 else
     echo "Already running as non-root user (uid=$EUID)"
-    exec celery -A celery_app worker --loglevel=info --concurrency=2
+    python -c 'import sys; print("Python:", sys.version)'
+    exec celery -A celery_app worker --loglevel=info --concurrency=1 --pool=solo
 fi
