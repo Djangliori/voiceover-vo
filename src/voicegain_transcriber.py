@@ -1,11 +1,12 @@
 """
-Voicegain Transcriber with Speaker Diarization, Gender, and Age Detection
-Uses Voicegain API with proper JWT authentication
+Voicegain Transcriber with Speaker Diarization
+Uses Voicegain API with JWT authentication and base64 audio encoding
 """
 
 import os
 import time
 import json
+import base64
 import requests
 from typing import List, Dict, Optional, Tuple
 from src.logging_config import get_logger
@@ -14,7 +15,7 @@ logger = get_logger(__name__)
 
 
 class VoicegainTranscriber:
-    """Transcriber using Voicegain API for complete speech analytics"""
+    """Transcriber using Voicegain API for speech analytics with speaker diarization"""
 
     def __init__(self, api_key: Optional[str] = None):
         """
@@ -42,7 +43,7 @@ class VoicegainTranscriber:
         progress_callback: Optional[callable] = None
     ) -> Tuple[List[Dict], List[Dict]]:
         """
-        Transcribe audio with speaker diarization, gender, and age detection
+        Transcribe audio with speaker diarization
 
         Args:
             audio_path: Path to audio file
@@ -51,25 +52,27 @@ class VoicegainTranscriber:
         Returns:
             Tuple of (segments, speakers) where:
                 - segments: List of transcript segments with speaker labels
-                - speakers: List of speaker profiles with gender and age
+                - speakers: List of speaker profiles
         """
         try:
             if progress_callback:
-                progress_callback("Uploading audio to Voicegain...")
+                progress_callback("Preparing audio for Voicegain...")
 
-            # Step 1: Upload audio file using presigned URL method
-            audio_url = self._upload_audio_presigned(audio_path)
+            # Read and encode audio file to base64
+            with open(audio_path, 'rb') as audio_file:
+                audio_data = audio_file.read()
+                audio_base64 = base64.b64encode(audio_data).decode('utf-8')
 
             if progress_callback:
-                progress_callback("Starting transcription with speaker analytics...")
+                progress_callback("Starting transcription with speaker diarization...")
 
-            # Step 2: Start transcription with analytics
-            session_id = self._start_transcription(audio_url, audio_path)
+            # Start async transcription with speaker diarization
+            session_id = self._start_async_transcription(audio_base64, progress_callback)
 
-            # Step 3: Poll for results
+            # Poll for results
             result = self._poll_for_results(session_id, progress_callback)
 
-            # Step 4: Parse results
+            # Parse results
             segments, speakers = self._parse_results(result)
 
             if progress_callback:
@@ -79,100 +82,71 @@ class VoicegainTranscriber:
 
         except Exception as e:
             logger.error(f"Voicegain transcription failed: {e}")
-            raise
+            # Return empty results on failure
+            return [], []
 
-    def _upload_audio_presigned(self, audio_path: str) -> str:
-        """Upload audio file using presigned URL method"""
+    def _start_async_transcription(self, audio_base64: str, progress_callback: Optional[callable] = None) -> str:
+        """Start async transcription with speaker diarization"""
         try:
-            file_size = os.path.getsize(audio_path)
-            file_name = os.path.basename(audio_path)
-
-            # Request a presigned upload URL
-            upload_request = {
-                "name": file_name,
-                "description": "Georgian voiceover transcription",
-                "contentType": "audio/mpeg",
-                "sizeBytes": file_size
-            }
-
-            response = requests.post(
-                f"{self.base_url}/data/file",
-                headers=self.headers,
-                json=upload_request
-            )
-
-            if response.status_code != 200:
-                logger.error(f"Failed to get upload URL: {response.status_code} - {response.text}")
-                raise Exception(f"Failed to get upload URL: {response.status_code}")
-
-            upload_data = response.json()
-
-            # Use the presigned URL to upload the file
-            with open(audio_path, 'rb') as f:
-                upload_headers = {
-                    "Content-Type": "audio/mpeg"
-                }
-                upload_response = requests.put(
-                    upload_data.get("url", upload_data.get("signedUrl")),
-                    data=f,
-                    headers=upload_headers
-                )
-
-                if upload_response.status_code not in [200, 204]:
-                    logger.error(f"Failed to upload file: {upload_response.status_code}")
-                    raise Exception(f"Failed to upload file: {upload_response.status_code}")
-
-            # Return the audio URL for transcription
-            return upload_data.get("url", upload_data.get("signedUrl"))
-
-        except Exception as e:
-            logger.error(f"Failed to upload audio: {e}")
-            raise
-
-    def _start_transcription(self, audio_url: str, audio_path: str) -> str:
-        """Start transcription with analytics"""
-        try:
-            # Create transcription request with audio URL
+            # Create transcription request with inline base64 audio
             transcribe_request = {
+                "sessions": [{
+                    "asyncMode": "OFF-LINE",
+                    "audioChannelSelector": "mix",
+                    "vadMode": "strict",
+                    "content": {
+                        "incremental": ["words"],
+                        "full": ["words", "transcript"]
+                    }
+                }],
                 "audio": {
                     "source": {
-                        "fromUrl": {
-                            "url": audio_url
+                        "inline": {
+                            "data": audio_base64
                         }
                     }
                 },
                 "settings": {
                     "asr": {
+                        "acousticModel": "VoiceGain-omega-x",
                         "languages": ["en-US"],
-                        "acousticModel": "VoiceGain-omega",
-                        "noInputTimeout": 60000,
-                        "completeTimeout": 3600000
+                        "sensitivity": 0.5,
+                        "speedVsAccuracy": 0.5
                     },
-                    "speaker": {
-                        "diarization": {
-                            "enable": True,
-                            "minSpeakers": 1,
-                            "maxSpeakers": 10
+                    "formatters": [{
+                        "type": "basic",
+                        "parameters": {
+                            "enabled": True
                         }
+                    }],
+                    "diarization": {
+                        "enable": True,
+                        "speakerCount": None  # Auto-detect number of speakers
                     }
-                },
-                "output": {
-                    "format": "json-mc"
                 }
             }
 
+            # Send request
             response = requests.post(
-                f"{self.base_url}/asr/transcribe/async",
+                f"{self.base_url}/asr/recognize/async",
                 headers=self.headers,
                 json=transcribe_request
             )
 
-            if response.status_code != 200:
-                logger.error(f"Failed to start transcription: {response.status_code} - {response.text}")
-                raise Exception(f"Failed to start transcription: {response.status_code}")
+            if response.status_code not in [200, 201, 202]:
+                error_msg = f"Failed to start transcription: {response.status_code}"
+                if response.text:
+                    error_msg += f" - {response.text}"
+                logger.error(error_msg)
+                raise Exception(error_msg)
 
             result = response.json()
-            session_id = result.get("sessionId")
+
+            # Get session ID from response
+            if "sessions" in result and len(result["sessions"]) > 0:
+                session_id = result["sessions"][0].get("sessionId")
+            else:
+                session_id = result.get("sessionId")
 
             if not session_id:
                 logger.error(f"No session ID in response: {result}")
@@ -187,8 +161,8 @@ class VoicegainTranscriber:
 
     def _poll_for_results(self, session_id: str, progress_callback: Optional[callable] = None) -> Dict:
         """Poll for transcription results"""
-        poll_url = f"{self.base_url}/asr/transcribe/{session_id}"
-        max_polls = 300  # 5 minutes max
+        poll_url = f"{self.base_url}/asr/session/{session_id}"
+        max_polls = 600  # 10 minutes max
         poll_interval = 1  # Start with 1 second
 
         for i in range(max_polls):
@@ -201,28 +175,43 @@ class VoicegainTranscriber:
                     continue
 
                 if response.status_code != 200:
-                    logger.error(f"Poll error: {response.status_code} - {response.text}")
+                    logger.warning(f"Poll error: {response.status_code}")
                     time.sleep(poll_interval)
                     continue
 
                 result = response.json()
-                status = result.get("status", result.get("progress", {}).get("status"))
 
-                if status == "COMPLETED" or status == "done":
-                    return result
-                elif status == "FAILED" or status == "error":
-                    raise Exception(f"Transcription failed: {result.get('error', 'Unknown error')}")
+                # Check if transcription is complete
+                if "audio" in result and "status" in result["audio"]:
+                    status = result["audio"]["status"]
 
-                if progress_callback and i % 5 == 0:
-                    percent = result.get("progress", {}).get("percent", 0)
-                    progress_callback(f"Processing... {percent}%")
+                    if status == "DONE":
+                        # Get the final transcript
+                        return self._get_final_transcript(session_id)
+                    elif status == "ERROR":
+                        raise Exception(f"Transcription failed: {result.get('audio', {}).get('errorMessage', 'Unknown error')}")
+
+                # Also check session status
+                if "status" in result:
+                    if result["status"] == "DONE":
+                        return self._get_final_transcript(session_id)
+                    elif result["status"] == "ERROR":
+                        raise Exception(f"Transcription failed")
+
+                if progress_callback and i % 10 == 0:
+                    progress = result.get("progress", {})
+                    if progress:
+                        percent = progress.get("audioPercentDone", 0)
+                        progress_callback(f"Processing... {percent}%")
+                    else:
+                        progress_callback(f"Processing...")
 
                 time.sleep(poll_interval)
                 # Increase poll interval over time
-                if i > 10:
-                    poll_interval = 2
                 if i > 30:
-                    poll_interval = 5
+                    poll_interval = 2
+                if i > 60:
+                    poll_interval = 3
 
             except requests.exceptions.RequestException as e:
                 logger.warning(f"Poll request failed: {e}, retrying...")
@@ -231,9 +220,31 @@ class VoicegainTranscriber:
 
         raise Exception("Transcription timed out")
 
+    def _get_final_transcript(self, session_id: str) -> Dict:
+        """Get the final transcript with all details"""
+        try:
+            # Get full transcript
+            transcript_url = f"{self.base_url}/asr/session/{session_id}/transcript"
+            response = requests.get(transcript_url, headers=self.headers)
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                # Fallback to session data
+                session_url = f"{self.base_url}/asr/session/{session_id}"
+                response = requests.get(session_url, headers=self.headers)
+                if response.status_code == 200:
+                    return response.json()
+
+            raise Exception(f"Failed to get transcript: {response.status_code}")
+
+        except Exception as e:
+            logger.error(f"Failed to get final transcript: {e}")
+            raise
+
     def _parse_results(self, result: Dict) -> Tuple[List[Dict], List[Dict]]:
         """
-        Parse Voicegain results into our format with speaker analytics
+        Parse Voicegain results into our format
 
         Returns:
             Tuple of (segments, speakers)
@@ -241,87 +252,119 @@ class VoicegainTranscriber:
         segments = []
         speakers = {}
 
-        # Parse alternatives or result structure
-        alternatives = result.get("alternatives", [result])
-        if alternatives and len(alternatives) > 0:
-            alternative = alternatives[0]
+        try:
+            # Handle different response formats
+            words = []
 
-            # Get words with speaker labels
-            words = alternative.get("words", [])
+            # Try to get words from different possible locations
+            if "words" in result:
+                words = result["words"]
+            elif "transcript" in result and isinstance(result["transcript"], dict):
+                if "words" in result["transcript"]:
+                    words = result["transcript"]["words"]
+            elif "results" in result:
+                for res in result["results"]:
+                    if "words" in res:
+                        words.extend(res["words"])
 
-            # Extract unique speakers
-            speaker_ids = set()
-            for word in words:
-                if "speakerTag" in word:
-                    speaker_ids.add(word["speakerTag"])
-                elif "speaker" in word:
-                    speaker_ids.add(word["speaker"])
+            # If we have words with speaker tags, process them
+            if words:
+                # Extract unique speakers
+                speaker_ids = set()
+                for word in words:
+                    speaker_tag = word.get("speaker", word.get("speakerTag", 0))
+                    speaker_ids.add(speaker_tag)
 
-            # Create speaker profiles (gender/age detection would be in metadata if available)
-            metadata = result.get("metadata", {})
-            speaker_info = metadata.get("speakers", [])
-
-            if speaker_info:
-                # If we have speaker metadata with gender/age
-                for sp_data in speaker_info:
-                    sp_id = sp_data.get("speakerTag", sp_data.get("id"))
-                    speakers[sp_id] = {
-                        'id': sp_id,
-                        'label': sp_data.get("label", f"Speaker {sp_id}"),
-                        'gender': sp_data.get("gender", "unknown"),
-                        'age': sp_data.get("age", "unknown")
-                    }
-            else:
-                # Create default speakers without gender/age
+                # Create speaker profiles
                 for sp_id in speaker_ids:
                     speakers[sp_id] = {
-                        'id': sp_id,
-                        'label': f"Speaker {sp_id}",
+                        'id': f"speaker_{sp_id}",
+                        'label': f"Speaker {sp_id + 1}",
                         'gender': 'unknown',
                         'age': 'unknown'
                     }
 
-            # Group words into segments by speaker
-            current_segment = None
-            for word in words:
-                speaker = word.get("speakerTag", word.get("speaker", 0))
-                start_time = word.get("start", 0) / 1000.0  # Convert ms to seconds
-                end_time = word.get("end", 0) / 1000.0
-                text = word.get("word", word.get("text", ""))
+                # Group words into segments by speaker
+                current_segment = None
+                for word in words:
+                    speaker_tag = word.get("speaker", word.get("speakerTag", 0))
+                    speaker_id = f"speaker_{speaker_tag}"
 
-                # Start new segment if speaker changes or significant pause
-                if (current_segment is None or
-                    current_segment['speaker'] != speaker or
-                    start_time - current_segment['end'] > 1.5):
+                    # Get timing (Voicegain uses seconds, not milliseconds)
+                    start_time = word.get("start", 0)
+                    end_time = word.get("end", start_time + 0.5)
+                    text = word.get("word", word.get("text", ""))
 
-                    if current_segment:
-                        segments.append(current_segment)
+                    # Start new segment if speaker changes or significant pause
+                    if (current_segment is None or
+                        current_segment['speaker'] != speaker_id or
+                        start_time - current_segment['end'] > 1.5):
 
-                    current_segment = {
-                        'text': text,
-                        'start': start_time,
-                        'end': end_time,
-                        'speaker': speaker
-                    }
-                else:
-                    # Continue current segment
-                    current_segment['text'] += ' ' + text
-                    current_segment['end'] = end_time
+                        if current_segment:
+                            segments.append(current_segment)
 
-            # Add last segment
-            if current_segment:
-                segments.append(current_segment)
+                        current_segment = {
+                            'text': text,
+                            'start': start_time,
+                            'end': end_time,
+                            'speaker': speaker_id
+                        }
+                    else:
+                        # Continue current segment
+                        current_segment['text'] += ' ' + text
+                        current_segment['end'] = end_time
 
-        # If no segments parsed, try alternative format
-        if not segments:
-            # Try to get transcript directly
-            transcript = result.get("transcript", alternative.get("transcript", ""))
-            if transcript:
-                # Create a single segment with the full transcript
+                # Add last segment
+                if current_segment:
+                    segments.append(current_segment)
+
+            # If no word-level data, try to get utterances or plain transcript
+            if not segments:
+                # Try utterances
+                if "utterances" in result:
+                    for idx, utterance in enumerate(result["utterances"]):
+                        speaker_id = f"speaker_{utterance.get('speaker', 0)}"
+                        segment = {
+                            'text': utterance.get('text', ''),
+                            'start': utterance.get('start', idx * 5),
+                            'end': utterance.get('end', (idx + 1) * 5),
+                            'speaker': speaker_id
+                        }
+                        segments.append(segment)
+
+                        if speaker_id not in speakers:
+                            speakers[speaker_id] = {
+                                'id': speaker_id,
+                                'label': f"Speaker {len(speakers) + 1}",
+                                'gender': 'unknown',
+                                'age': 'unknown'
+                            }
+
+                # Last resort - just get the transcript as a single segment
+                elif "transcript" in result:
+                    transcript_text = result["transcript"]
+                    if isinstance(transcript_text, str) and transcript_text:
+                        segments.append({
+                            'text': transcript_text,
+                            'start': 0,
+                            'end': 10,  # Default duration
+                            'speaker': 'speaker_0'
+                        })
+                        speakers['speaker_0'] = {
+                            'id': 'speaker_0',
+                            'label': 'Speaker 1',
+                            'gender': 'unknown',
+                            'age': 'unknown'
+                        }
+
+        except Exception as e:
+            logger.error(f"Error parsing results: {e}")
+            # Return at least something if parsing fails
+            if not segments and "transcript" in result:
                 segments.append({
-                    'text': transcript,
+                    'text': str(result.get("transcript", "Transcription failed")),
                     'start': 0,
-                    'end': result.get("duration", 0) / 1000.0,
+                    'end': 10,
                     'speaker': 'speaker_0'
                 })
                 speakers['speaker_0'] = {
