@@ -8,6 +8,8 @@ import time
 import json
 import base64
 import requests
+import tempfile
+import subprocess
 from typing import List, Dict, Optional, Tuple
 from src.logging_config import get_logger
 
@@ -65,15 +67,19 @@ class VoicegainTranscriber:
             file_size_mb = file_size / (1024 * 1024)
             logger.info(f"Audio file size: {file_size_mb:.2f} MB")
 
-            # Try the simplest endpoint first (/asr/recognize)
-            result = self._simple_recognize(audio_path, progress_callback)
-            if result[0]:  # If we got segments
-                return result
+            # Convert MP3 to WAV for sync transcription
+            # YouTube downloads are MP3, but sync API needs WAV
+            if audio_path.lower().endswith('.mp3'):
+                if progress_callback:
+                    progress_callback("Converting MP3 to WAV format...")
+                audio_path = self._convert_to_wav(audio_path)
+                logger.info("Converted MP3 to WAV for Voicegain")
 
-            # If that fails, try sync transcribe
-            if file_size_mb < 10:  # If less than 10MB, use sync
+            # For WAV files under 10MB, use sync transcribe
+            if file_size_mb < 10:
                 return self._sync_transcribe(audio_path, progress_callback)
             else:
+                # For larger files, use async
                 return self._async_transcribe(audio_path, progress_callback)
 
         except Exception as e:
@@ -81,47 +87,38 @@ class VoicegainTranscriber:
             # Return empty results on failure
             return [], []
 
-    def _simple_recognize(self, audio_path: str, progress_callback: Optional[callable] = None) -> Tuple[List[Dict], List[Dict]]:
+    def _convert_to_wav(self, mp3_path: str) -> str:
         """
-        Simplest possible recognition - just audio, no settings
+        Convert MP3 to WAV format that Voicegain sync API supports
+        Uses ffmpeg to convert to 16kHz mono WAV
         """
         try:
-            if progress_callback:
-                progress_callback("Using simple recognition...")
+            # Create temporary WAV file
+            wav_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            wav_path = wav_file.name
+            wav_file.close()
 
-            # Read and encode audio
-            with open(audio_path, 'rb') as audio_file:
-                audio_data = audio_file.read()
-                audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+            # Convert MP3 to WAV using ffmpeg
+            # 16kHz, mono, 16-bit PCM which Voicegain supports
+            cmd = [
+                'ffmpeg', '-i', mp3_path,
+                '-ar', '16000',  # 16kHz sample rate
+                '-ac', '1',       # mono
+                '-acodec', 'pcm_s16le',  # 16-bit PCM
+                '-y',             # overwrite output
+                wav_path
+            ]
 
-            # ABSOLUTELY MINIMAL request - just audio
-            request_body = {
-                "audio": {
-                    "source": {
-                        "inline": {
-                            "data": audio_base64
-                        }
-                    }
-                }
-            }
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                logger.error(f"ffmpeg conversion failed: {result.stderr}")
+                raise Exception(f"Audio conversion failed: {result.stderr}")
 
-            # Send to simplest endpoint
-            response = requests.post(
-                f"{self.base_url}/asr/recognize",
-                headers=self.headers,
-                json=request_body
-            )
-
-            if response.status_code != 200:
-                logger.warning(f"Simple recognize returned {response.status_code}")
-                return [], []
-
-            result = response.json()
-            return self._parse_recognize_results(result)
+            return wav_path
 
         except Exception as e:
-            logger.warning(f"Simple recognize error: {e}")
-            return [], []
+            logger.error(f"Error converting MP3 to WAV: {e}")
+            raise
 
     def _sync_transcribe(self, audio_path: str, progress_callback: Optional[callable] = None) -> Tuple[List[Dict], List[Dict]]:
         """
@@ -136,14 +133,18 @@ class VoicegainTranscriber:
                 audio_data = audio_file.read()
                 audio_base64 = base64.b64encode(audio_data).decode('utf-8')
 
-            # ABSOLUTELY MINIMAL request - just audio, no settings at all
+            # Request with proper format specification for WAV
+            # L16 = Linear PCM 16-bit (standard WAV format)
             request_body = {
                 "audio": {
                     "source": {
                         "inline": {
                             "data": audio_base64
                         }
-                    }
+                    },
+                    "format": "L16",
+                    "rate": 16000,
+                    "channels": "mono"
                 }
             }
 
@@ -167,7 +168,8 @@ class VoicegainTranscriber:
 
     def _async_transcribe(self, audio_path: str, progress_callback: Optional[callable] = None) -> Tuple[List[Dict], List[Dict]]:
         """
-        Async transcription for larger files - MINIMAL version
+        Async transcription for larger files - uses /asr/transcribe/async
+        Supports MP3 and other formats via ffmpeg
         """
         try:
             if progress_callback:
@@ -178,20 +180,28 @@ class VoicegainTranscriber:
                 audio_data = audio_file.read()
                 audio_base64 = base64.b64encode(audio_data).decode('utf-8')
 
-            # ULTRA MINIMAL async request - just audio, no sessions config
+            # Async request structure according to OpenAPI spec
+            # OFF-LINE mode for batch transcription
             request_body = {
+                "sessions": [{
+                    "asyncMode": "OFF-LINE",
+                    "poll": {
+                        "persist": 600000  # 10 minutes
+                    }
+                }],
                 "audio": {
                     "source": {
                         "inline": {
                             "data": audio_base64
                         }
                     }
+                    # No format specification needed for async - it uses ffmpeg
                 }
             }
 
-            # Send async request
+            # Send async request to correct endpoint
             response = requests.post(
-                f"{self.base_url}/asr/recognize/async",
+                f"{self.base_url}/asr/transcribe/async",  # Changed to transcribe/async
                 headers=self.headers,
                 json=request_body
             )
@@ -226,7 +236,7 @@ class VoicegainTranscriber:
         """
         Poll for async results and parse them
         """
-        poll_url = f"{self.base_url}/asr/recognize/async/{session_id}"
+        poll_url = f"{self.base_url}/asr/transcribe/{session_id}"
         max_attempts = 120
 
         for i in range(max_attempts):
@@ -348,30 +358,3 @@ class VoicegainTranscriber:
         logger.info(f"Parsed {len(segments)} segments")
         return segments, list(speakers.values())
 
-    def _parse_recognize_results(self, result: Dict) -> Tuple[List[Dict], List[Dict]]:
-        """Parse recognize endpoint results"""
-        segments = []
-        speakers = {}
-
-        try:
-            # Get alternatives
-            alternatives = result.get("alternatives", [])
-            if alternatives:
-                transcript = alternatives[0].get("transcript", "")
-                if transcript:
-                    segments.append({
-                        'text': transcript,
-                        'start': 0,
-                        'end': 10,
-                        'speaker': 'speaker_0'
-                    })
-                    speakers['speaker_0'] = {
-                        'id': 'speaker_0',
-                        'label': 'Speaker 1',
-                        'gender': 'unknown',
-                        'age': 'unknown'
-                    }
-        except Exception as e:
-            logger.error(f"Error parsing recognize results: {e}")
-
-        return segments, list(speakers.values())
