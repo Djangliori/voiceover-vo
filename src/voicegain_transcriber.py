@@ -65,6 +65,18 @@ class VoicegainTranscriber:
         Stores speakers internally for later retrieval
         """
         segments, speakers = self.transcribe_with_analytics(audio_path, progress_callback)
+
+        # Apply pitch-based gender detection for speakers with unknown gender
+        if speakers:
+            try:
+                from src.gender_detector import detect_speaker_genders
+                speakers = detect_speaker_genders(audio_path, segments, speakers)
+                logger.info(f"Gender detection complete: {[(s['id'], s.get('gender', 'unknown')) for s in speakers]}")
+            except ImportError:
+                logger.warning("Gender detector not available - using default gender assignment")
+            except Exception as e:
+                logger.warning(f"Gender detection failed: {e}")
+
         self._segments = segments
         self._speakers = speakers
         return segments
