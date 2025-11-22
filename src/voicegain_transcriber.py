@@ -350,13 +350,18 @@ class VoicegainTranscriber:
             audio_format = audio_path.split('.')[-1].lower()
 
             # Request structure using uploaded audio ID
+            # Enable diarization and speaker analytics for gender/age detection
             request_body = {
                 "sessions": [{
                     "asyncMode": "OFF-LINE",  # Offline processing mode
                     "audioChannelSelector": "mix",  # Mix stereo to mono if needed
                     "content": {
-                        "full": ["transcript", "words"],  # Get full transcript and word timings
+                        "full": ["transcript", "words", "speakerAnalytics"],  # Include speaker analytics
                         "incremental": []
+                    },
+                    "diarization": {
+                        "minSpeakers": 1,
+                        "maxSpeakers": 6
                     },
                     "poll": {
                         "persist": 600000  # Keep results for 10 minutes after completion
@@ -757,16 +762,25 @@ class VoicegainTranscriber:
                 for i, seg in enumerate(segments[:3]):
                     logger.info(f"Segment {i}: text='{seg.get('text', '')[:80]}', start={seg.get('start')}, end={seg.get('end')}")
 
+            # Extract speaker analytics if available in the JSON transcript
+            speaker_analytics = transcript_data.get("speakerAnalytics") or {}
+            logger.info(f"Speaker analytics from JSON: {json.dumps(speaker_analytics, indent=2) if speaker_analytics else 'None'}")
+
             # Build speakers dict from unique speaker IDs found in segments
             if segments:
                 unique_speakers = set(seg.get('speaker', 'speaker_0') for seg in segments)
                 for i, spk_id in enumerate(sorted(unique_speakers)):
+                    # Try to get speaker analytics (spk_id might be "speaker_1" or just "1")
+                    spk_num = spk_id.replace('speaker_', '')
+                    analytics = speaker_analytics.get(spk_id) or speaker_analytics.get(spk_num) or {}
+
                     speakers[spk_id] = {
                         'id': spk_id,
                         'label': f'Speaker {i + 1}',
-                        'gender': 'unknown',
-                        'age': 'unknown'
+                        'gender': analytics.get('gender', 'unknown'),
+                        'age': analytics.get('age', 'unknown')
                     }
+                    logger.info(f"Speaker {spk_id}: gender={speakers[spk_id]['gender']}, age={speakers[spk_id]['age']}")
                 logger.info(f"Found {len(speakers)} unique speakers: {list(speakers.keys())}")
 
         except Exception as e:
@@ -934,8 +948,23 @@ class VoicegainTranscriber:
                 else:
                     logger.warning("No words, transcript, or alternatives found in result!")
 
-            # Create a default speaker
-            if segments:
+            # Extract speaker analytics (gender/age) if available
+            speaker_analytics = inner_result.get("speakerAnalytics") or result.get("speakerAnalytics") or {}
+            logger.info(f"Speaker analytics data: {json.dumps(speaker_analytics, indent=2) if speaker_analytics else 'None'}")
+
+            # Build speakers from analytics or create defaults
+            if speaker_analytics:
+                for spk_id, analytics in speaker_analytics.items():
+                    speaker_key = f'speaker_{spk_id}' if not spk_id.startswith('speaker_') else spk_id
+                    speakers[speaker_key] = {
+                        'id': speaker_key,
+                        'label': f'Speaker {len(speakers) + 1}',
+                        'gender': analytics.get('gender', 'unknown'),
+                        'age': analytics.get('age', 'unknown')
+                    }
+                    logger.info(f"Speaker {speaker_key}: gender={analytics.get('gender')}, age={analytics.get('age')}")
+            elif segments:
+                # No speaker analytics - create default speaker
                 speakers['speaker_0'] = {
                     'id': 'speaker_0',
                     'label': 'Speaker 1',
@@ -948,6 +977,6 @@ class VoicegainTranscriber:
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
 
-        logger.info(f"Parsed {len(segments)} segments")
+        logger.info(f"Parsed {len(segments)} segments with {len(speakers)} speakers")
         return segments, list(speakers.values())
 
