@@ -121,10 +121,24 @@ class VideoDownloader:
                 progress_callback("Downloading audio stream (video downloading in background)...")
 
             self._download_file(audio_only_stream['url'], audio_path, "audio", progress_callback)
-            logger.info("Audio ready for processing, video still downloading in background")
 
-        else:
-            # Fall back to combined stream (old behavior)
+            # Verify the downloaded file actually has audio
+            if not self._verify_audio_file(audio_path):
+                logger.warning("Downloaded 'audio' stream has no audio! Falling back to combined stream")
+                # Clean up bad file and fall back
+                if audio_path.exists():
+                    audio_path.unlink()
+                # Cancel video download and use combined stream instead
+                use_parallel = False
+                # Wait for video thread to finish or timeout quickly
+                if self._video_download_thread:
+                    self._video_download_thread.join(timeout=5)
+
+            if use_parallel:
+                logger.info("Audio ready for processing, video still downloading in background")
+
+        # Fall back to combined stream if parallel failed or not available
+        if not use_parallel:
             logger.info("Using SEQUENTIAL download (combined stream)")
 
             if not combined_stream:
@@ -404,6 +418,45 @@ class VideoDownloader:
 
         if total_size > 0 and downloaded < total_size:
             logger.warning(f"Incomplete {stream_type} download: {downloaded}/{total_size} bytes")
+
+    def _verify_audio_file(self, file_path):
+        """Verify that a file contains an audio stream using ffprobe"""
+        import subprocess
+        import shutil
+
+        # Find ffprobe
+        nix_ffprobe = '/nix/var/nix/profiles/default/bin/ffprobe'
+        if os.path.exists(nix_ffprobe):
+            ffprobe_path = nix_ffprobe
+        else:
+            ffprobe_path = shutil.which('ffprobe')
+            if not ffprobe_path:
+                # Try common locations
+                for path in ['/usr/bin/ffprobe', '/usr/local/bin/ffprobe']:
+                    if os.path.exists(path):
+                        ffprobe_path = path
+                        break
+
+        if not ffprobe_path:
+            logger.warning("ffprobe not found, skipping audio verification")
+            return True  # Assume OK if we can't verify
+
+        try:
+            cmd = [
+                ffprobe_path,
+                '-v', 'error',
+                '-select_streams', 'a',  # Select audio streams only
+                '-show_entries', 'stream=codec_type',
+                '-of', 'csv=p=0',
+                str(file_path)
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            has_audio = 'audio' in result.stdout.lower()
+            logger.info(f"Audio verification for {file_path}: has_audio={has_audio}")
+            return has_audio
+        except Exception as e:
+            logger.warning(f"Audio verification failed: {e}")
+            return True  # Assume OK on error
 
     def _download_file_thread(self, url, path, stream_type):
         """Download file in background thread"""
