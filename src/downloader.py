@@ -393,31 +393,71 @@ class VideoDownloader:
         return best
 
     def _download_file(self, url, path, stream_type, progress_callback=None):
-        """Download a file from URL to path"""
+        """Download a file from URL to path with retry logic"""
+        import time as time_module
         logger.info(f"Downloading {stream_type} from: {url[:100]}...")
 
-        with requests.Session() as session:
-            response = session.get(url, stream=True, timeout=300)
-            response.raise_for_status()
+        # Use browser-like headers to avoid YouTube blocking
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'identity',
+            'Connection': 'keep-alive',
+            'Referer': 'https://www.youtube.com/',
+            'Origin': 'https://www.youtube.com'
+        }
 
-            total_size = int(response.headers.get('content-length', 0))
-            downloaded = 0
+        # Retry logic for transient 403 errors
+        max_retries = 3
+        last_error = None
 
-            with open(path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=1024*1024):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if progress_callback and total_size > 0:
-                            percent = (downloaded / total_size) * 100
-                            size_mb = downloaded // (1024*1024)
-                            total_mb = total_size // (1024*1024)
-                            progress_callback(f"Downloading {stream_type}... {percent:.1f}% ({size_mb}MB/{total_mb}MB)")
+        for attempt in range(max_retries):
+            try:
+                with requests.Session() as session:
+                    response = session.get(url, stream=True, timeout=300, headers=headers)
+                    response.raise_for_status()
 
-        logger.info(f"{stream_type.capitalize()} download complete: {downloaded//(1024*1024)}MB")
+                    total_size = int(response.headers.get('content-length', 0))
+                    downloaded = 0
 
-        if total_size > 0 and downloaded < total_size:
-            logger.warning(f"Incomplete {stream_type} download: {downloaded}/{total_size} bytes")
+                    with open(path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=1024*1024):
+                            if chunk:
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                if progress_callback and total_size > 0:
+                                    percent = (downloaded / total_size) * 100
+                                    size_mb = downloaded // (1024*1024)
+                                    total_mb = total_size // (1024*1024)
+                                    progress_callback(f"Downloading {stream_type}... {percent:.1f}% ({size_mb}MB/{total_mb}MB)")
+
+                    logger.info(f"{stream_type.capitalize()} download complete: {downloaded//(1024*1024)}MB")
+
+                    if total_size > 0 and downloaded < total_size:
+                        logger.warning(f"Incomplete {stream_type} download: {downloaded}/{total_size} bytes")
+
+                    return  # Success, exit retry loop
+
+            except requests.exceptions.HTTPError as e:
+                last_error = e
+                if e.response.status_code == 403 and attempt < max_retries - 1:
+                    logger.warning(f"Download attempt {attempt + 1} failed with 403, retrying in 2 seconds...")
+                    time_module.sleep(2)
+                    continue
+                raise  # Re-raise if not 403 or last attempt
+
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    logger.warning(f"Download attempt {attempt + 1} failed: {e}, retrying...")
+                    time_module.sleep(1)
+                    continue
+                raise
+
+        # If we get here, all retries failed
+        if last_error:
+            raise last_error
 
     def _verify_audio_file(self, file_path):
         """Verify that a file contains an audio stream using ffprobe"""
