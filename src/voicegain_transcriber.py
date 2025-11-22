@@ -67,13 +67,14 @@ class VoicegainTranscriber:
             file_size_mb = file_size / (1024 * 1024)
             logger.info(f"Audio file size: {file_size_mb:.2f} MB")
 
-            # Convert MP3 to WAV for sync transcription
-            # YouTube downloads are MP3, but sync API needs WAV
-            if audio_path.lower().endswith('.mp3'):
+            # Convert non-WAV audio to WAV for sync transcription
+            # YouTube downloads M4A/MP3, but sync API needs WAV/PCM
+            if not audio_path.lower().endswith('.wav'):
                 if progress_callback:
-                    progress_callback("Converting MP3 to WAV format...")
+                    progress_callback("Converting audio to WAV format...")
+                original_format = audio_path.split('.')[-1].upper()
                 audio_path = self._convert_to_wav(audio_path)
-                logger.info("Converted MP3 to WAV for Voicegain")
+                logger.info(f"Converted {original_format} to WAV for Voicegain")
 
             # For WAV files under 10MB, use sync transcribe
             if file_size_mb < 10:
@@ -87,10 +88,11 @@ class VoicegainTranscriber:
             # Return empty results on failure
             return [], []
 
-    def _convert_to_wav(self, mp3_path: str) -> str:
+    def _convert_to_wav(self, audio_path: str) -> str:
         """
-        Convert MP3 to WAV format that Voicegain sync API supports
+        Convert any audio format to WAV that Voicegain sync API supports
         Uses ffmpeg to convert to 16kHz mono WAV
+        Works with MP3, M4A, AAC, and other formats
         """
         try:
             # Create temporary WAV file
@@ -98,10 +100,10 @@ class VoicegainTranscriber:
             wav_path = wav_file.name
             wav_file.close()
 
-            # Convert MP3 to WAV using ffmpeg
+            # Convert audio to WAV using ffmpeg
             # 16kHz, mono, 16-bit PCM which Voicegain supports
             cmd = [
-                'ffmpeg', '-i', mp3_path,
+                'ffmpeg', '-i', audio_path,
                 '-ar', '16000',  # 16kHz sample rate
                 '-ac', '1',       # mono
                 '-acodec', 'pcm_s16le',  # 16-bit PCM
@@ -109,15 +111,21 @@ class VoicegainTranscriber:
                 wav_path
             ]
 
+            logger.info(f"Converting audio with ffmpeg: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
                 logger.error(f"ffmpeg conversion failed: {result.stderr}")
                 raise Exception(f"Audio conversion failed: {result.stderr}")
 
+            # Check output file size to ensure conversion worked
+            import os as os_module
+            output_size = os_module.path.getsize(wav_path)
+            logger.info(f"Converted audio size: {output_size / (1024*1024):.2f} MB")
+
             return wav_path
 
         except Exception as e:
-            logger.error(f"Error converting MP3 to WAV: {e}")
+            logger.error(f"Error converting audio to WAV: {e}")
             raise
 
     def _sync_transcribe(self, audio_path: str, progress_callback: Optional[callable] = None) -> Tuple[List[Dict], List[Dict]]:
@@ -278,20 +286,65 @@ class VoicegainTranscriber:
             if "result" in result:
                 alternatives = result["result"].get("alternatives", [])
                 if alternatives:
-                    transcript = alternatives[0].get("utterance", "")
-                    if transcript:
-                        segments.append({
-                            'text': transcript,
-                            'start': 0,
-                            'end': 10,
-                            'speaker': 'speaker_0'
-                        })
+                    # Check for words array first (more detailed)
+                    words = alternatives[0].get("words", [])
+                    if words:
+                        # Build segments from words
+                        current_segment = None
+                        segment_duration = 5.0  # 5 second segments
+
+                        for word in words:
+                            word_text = word.get("word", "")
+                            word_start = word.get("start", 0) / 1000.0  # Convert ms to seconds
+                            word_end = word.get("end", word_start + 0.5) / 1000.0
+
+                            # Start new segment if needed
+                            if current_segment is None or word_start - current_segment['start'] > segment_duration:
+                                if current_segment:
+                                    segments.append(current_segment)
+                                current_segment = {
+                                    'text': word_text,
+                                    'start': word_start,
+                                    'end': word_end,
+                                    'speaker': 'speaker_0'
+                                }
+                            else:
+                                current_segment['text'] += ' ' + word_text
+                                current_segment['end'] = word_end
+
+                        if current_segment:
+                            segments.append(current_segment)
+                    else:
+                        # Fallback: split transcript into chunks
+                        transcript = alternatives[0].get("utterance", "")
+                        if transcript:
+                            # Split into sentences or chunks
+                            sentences = transcript.replace('!', '.').replace('?', '.').split('.')
+                            time_per_sentence = 3.0  # Estimate 3 seconds per sentence
+                            current_time = 0
+
+                            for sentence in sentences:
+                                sentence = sentence.strip()
+                                if sentence:
+                                    segments.append({
+                                        'text': sentence,
+                                        'start': current_time,
+                                        'end': current_time + time_per_sentence,
+                                        'speaker': 'speaker_0'
+                                    })
+                                    current_time += time_per_sentence
+
+                    # Create default speaker
+                    if segments:
                         speakers['speaker_0'] = {
                             'id': 'speaker_0',
                             'label': 'Speaker 1',
                             'gender': 'unknown',
                             'age': 'unknown'
                         }
+
+            logger.info(f"Parsed {len(segments)} segments from sync results")
+
         except Exception as e:
             logger.error(f"Error parsing sync results: {e}")
 
