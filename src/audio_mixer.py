@@ -42,7 +42,8 @@ class AudioMixer:
         if progress_callback:
             progress_callback("Loading original audio...")
 
-        original = AudioSegment.from_wav(original_audio_path)
+        # Use from_file to auto-detect format (supports wav, m4a, mp3, webm, etc.)
+        original = AudioSegment.from_file(original_audio_path)
         original = original.set_frame_rate(44100).set_channels(1)
         duration_ms = len(original)
 

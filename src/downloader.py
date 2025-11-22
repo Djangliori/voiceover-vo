@@ -61,8 +61,7 @@ class VideoDownloader:
         logger.info(f"Extracted video ID: {video_id}")
 
         video_path = self.temp_dir / f"{video_id}.mp4"
-        audio_path = self.temp_dir / f"{video_id}_audio.wav"
-        audio_source_path = self.temp_dir / f"{video_id}_audio_source.m4a"  # For audio-only stream
+        audio_path = self.temp_dir / f"{video_id}_audio.m4a"  # Audio file (no conversion needed)
 
         # Reset parallel download state
         self._video_download_error = None
@@ -121,13 +120,7 @@ class VideoDownloader:
             if progress_callback:
                 progress_callback("Downloading audio stream (video downloading in background)...")
 
-            self._download_file(audio_only_stream['url'], audio_source_path, "audio", progress_callback)
-
-            # Convert audio to WAV format for processing
-            if progress_callback:
-                progress_callback("Converting audio to WAV...")
-
-            self._convert_audio_to_wav(audio_source_path, audio_path)
+            self._download_file(audio_only_stream['url'], audio_path, "audio", progress_callback)
             logger.info("Audio ready for processing, video still downloading in background")
 
         else:
@@ -534,13 +527,13 @@ class VideoDownloader:
             logger.error("This video appears to be video-only. The API may have returned a format without audio.")
             raise Exception("Video file has no audio stream. The downloaded format is video-only. Please try a different video or check API settings.")
 
+        # Extract audio with codec copy for speed (no re-encoding)
+        # pydub and Whisper API can handle various audio formats
         cmd = [
             ffmpeg_path,
             '-i', str(video_path),
             '-vn',  # No video
-            '-acodec', 'pcm_s16le',  # PCM 16-bit
-            '-ar', '16000',  # 16kHz sample rate (good for speech recognition)
-            '-ac', '1',  # Mono
+            '-acodec', 'copy',  # Copy audio codec (fast, no re-encoding)
             '-y',  # Overwrite
             str(audio_path)
         ]
@@ -564,8 +557,8 @@ class VideoDownloader:
         """Clean up temporary files for a video"""
         files_to_remove = [
             self.temp_dir / f"{video_id}.mp4",
-            self.temp_dir / f"{video_id}_audio.wav",
-            self.temp_dir / f"{video_id}_audio_source.m4a",  # Audio-only stream source
+            self.temp_dir / f"{video_id}_audio.m4a",  # Audio file
+            self.temp_dir / f"{video_id}_audio.wav",  # Legacy WAV (if exists)
             self.temp_dir / f"{video_id}_mixed.wav",
             self.temp_dir / f"{video_id}_voiceover.wav",
         ]
