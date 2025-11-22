@@ -46,8 +46,12 @@ class VoicegainTranscriber:
             "Content-Type": "application/json"
         }
 
-        # Speech Analytics config ID (create in Voicegain console)
+        # Speech Analytics config ID - auto-create if not provided
         self.sa_config_id = os.getenv('VOICEGAIN_SA_CONFIG_ID')
+
+        # Auto-create SA config if not provided (enables gender detection)
+        if not self.sa_config_id:
+            self.sa_config_id = self._get_or_create_sa_config()
 
         # Store speakers for multi-voice support
         self._speakers = []
@@ -56,7 +60,88 @@ class VoicegainTranscriber:
         if self.sa_config_id:
             logger.info(f"Voicegain transcriber initialized with Speech Analytics (config: {self.sa_config_id})")
         else:
-            logger.info("Voicegain transcriber initialized (Speech Analytics disabled - no SA config)")
+            logger.info("Voicegain transcriber initialized (Speech Analytics disabled - config creation failed)")
+
+    def _get_or_create_sa_config(self) -> Optional[str]:
+        """
+        Get existing SA config or create a new one.
+        Returns the SA config UUID.
+        """
+        config_name = "gva-speech-analytics-config"
+
+        try:
+            # First, try to find existing config by name
+            logger.info(f"Checking for existing SA config: {config_name}")
+            response = requests.get(
+                f"{self.base_url}/sa/config?name={config_name}",
+                headers=self.headers
+            )
+
+            if response.status_code == 200:
+                configs = response.json()
+                if configs and len(configs) > 0:
+                    for config in configs:
+                        if config.get("name") == config_name:
+                            config_id = config.get("saConfId")
+                            logger.info(f"Found existing SA config: {config_id}")
+                            return config_id
+
+            # Create new SA config with gender detection enabled
+            logger.info("Creating new SA config with gender detection...")
+            sa_config_body = {
+                "name": config_name,
+                "gender": True,      # Enable gender detection
+                "age": True,         # Enable age detection
+                "sentiment": False,  # Not needed for dubbing
+                "summary": False,
+                "wordCloud": False,
+                "profanity": False,
+                "overtalkTotalPercentageThreshold": 1.0,
+                "overtalkSingleDurationMaximumThreshold": 1,
+                "silenceTotalPercentageThreshold": 10.0,
+                "silenceSingleDurationMaximumThreshold": 3,
+                "moods": [],
+                "entities": [],
+                "keywords": [],
+                "phrases": []
+            }
+
+            response = requests.post(
+                f"{self.base_url}/sa/config",
+                headers=self.headers,
+                json=sa_config_body
+            )
+
+            if response.status_code in [200, 201]:
+                result = response.json()
+                config_id = result.get("saConfId")
+                logger.info(f"Created new SA config: {config_id}")
+                return config_id
+            else:
+                logger.error(f"Failed to create SA config: {response.status_code} - {response.text}")
+
+                # If name already exists, try to get it
+                if "name is being used" in response.text:
+                    logger.info("Config name exists, fetching existing config...")
+                    response = requests.get(
+                        f"{self.base_url}/sa/config",
+                        headers=self.headers
+                    )
+                    if response.status_code == 200:
+                        configs = response.json()
+                        for config in configs:
+                            if config.get("name") == config_name:
+                                config_id = config.get("saConfId")
+                                logger.info(f"Found existing SA config: {config_id}")
+                                return config_id
+
+                return None
+
+        except Exception as e:
+            logger.error(f"Error getting/creating SA config: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return None
 
     def transcribe(
         self,
