@@ -136,15 +136,8 @@ class VoicegainTranscriber:
                 audio_data = audio_file.read()
                 audio_base64 = base64.b64encode(audio_data).decode('utf-8')
 
-            # MINIMAL async request based on examples
+            # ULTRA MINIMAL async request - just audio, no sessions config
             request_body = {
-                "sessions": [{
-                    "asyncMode": "OFF-LINE",
-                    "poll": {
-                        "afterlife": 60000,
-                        "persist": 0
-                    }
-                }],
                 "audio": {
                     "source": {
                         "inline": {
