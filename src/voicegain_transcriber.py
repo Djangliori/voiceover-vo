@@ -429,7 +429,30 @@ class VoicegainTranscriber:
                 if result_final:
                     logger.info(f"Session marked as final after {i} polls, fetching full transcript...")
 
-                    # NOW fetch with ?full=true to get the actual transcript
+                    # Extract session ID from poll URL to use transcript endpoint
+                    # Poll URL format: https://api.voicegain.ai/v1/asr/transcribe/{sessionId}/poll
+                    session_id_from_url = poll_url.split('/asr/transcribe/')[1].split('/')[0]
+
+                    # Use the transcript endpoint with format=json for complete word data
+                    # Per docs: "json - complete transcript data with all detail for each word"
+                    transcript_url = f"{self.base_url}/asr/transcribe/{session_id_from_url}/transcript?format=json"
+                    logger.info(f"Fetching transcript from: {transcript_url}")
+
+                    json_response = requests.get(transcript_url, headers=self.headers)
+
+                    if json_response.status_code == 200:
+                        json_result = json_response.json()
+                        logger.info(f"JSON transcript keys: {json_result.keys() if isinstance(json_result, dict) else 'array'}")
+                        logger.info(f"JSON transcript structure: {json.dumps(json_result, indent=2)[:3000]}")
+
+                        if console_session_id:
+                            console.log(f"Transcription complete after {i} polls", level="SUCCESS", session_id=console_session_id)
+
+                        return self._parse_json_transcript(json_result, console_session_id)
+                    else:
+                        logger.warning(f"JSON transcript fetch failed: {json_response.status_code}, falling back to poll response")
+
+                    # Fallback: fetch with ?full=true
                     full_response = requests.get(f"{poll_url}?full=true", headers=self.headers)
 
                     if full_response.status_code != 200:
@@ -535,6 +558,163 @@ class VoicegainTranscriber:
 
         return segments, list(speakers.values())
 
+    def _parse_json_transcript(self, result: Dict, console_session_id: str = None) -> Tuple[List[Dict], List[Dict]]:
+        """Parse JSON format transcript from /transcript?format=json endpoint.
+
+        This endpoint provides "complete transcript data with all detail for each word".
+        """
+        segments = []
+        speakers = {}
+
+        try:
+            # Log the full structure for debugging
+            logger.info(f"=== JSON TRANSCRIPT DEBUG ===")
+            logger.info(f"Type: {type(result)}")
+
+            if isinstance(result, dict):
+                logger.info(f"Keys: {result.keys()}")
+                # Log first 5000 chars of the JSON for debugging
+                logger.info(f"Full JSON: {json.dumps(result, indent=2)[:5000]}")
+            elif isinstance(result, list):
+                logger.info(f"Array length: {len(result)}")
+                if result:
+                    logger.info(f"First item type: {type(result[0])}")
+                    logger.info(f"First item: {json.dumps(result[0], indent=2)[:1000]}")
+
+            # The JSON transcript format typically has words as an array
+            # Each word has: word/w/utterance, start/s, end/e, confidence
+            words = []
+
+            # Try different possible structures
+            if isinstance(result, dict):
+                # Try common keys where words might be
+                words = (
+                    result.get("words") or
+                    result.get("word") or
+                    result.get("transcript", {}).get("words") if isinstance(result.get("transcript"), dict) else [] or
+                    result.get("result", {}).get("words") or
+                    []
+                )
+
+                # If words is still empty but we have a 'transcript' string, log it
+                if not words and result.get("transcript"):
+                    transcript_text = result.get("transcript")
+                    if isinstance(transcript_text, str):
+                        logger.info(f"Found transcript text (no words): {transcript_text[:500]}")
+                        # Fall back to splitting transcript into sentences
+                        sentences = transcript_text.replace('!', '.').replace('?', '.').split('.')
+                        time_per_sentence = 3.0
+                        current_time = 0
+                        for sentence in sentences:
+                            sentence = sentence.strip()
+                            if sentence:
+                                segments.append({
+                                    'text': sentence,
+                                    'start': current_time,
+                                    'end': current_time + time_per_sentence,
+                                    'speaker': 'speaker_0'
+                                })
+                                current_time += time_per_sentence
+                        logger.info(f"Created {len(segments)} segments from transcript text")
+
+            elif isinstance(result, list):
+                # Result itself might be the words array
+                words = result
+
+            logger.info(f"Found {len(words)} words")
+
+            if words:
+                # Log first word structure
+                first_word = words[0]
+                logger.info(f"=== WORD OBJECT DEBUG (JSON) ===")
+                logger.info(f"Word type: {type(first_word)}")
+                if isinstance(first_word, dict):
+                    logger.info(f"Word keys: {first_word.keys()}")
+                    logger.info(f"First word: {json.dumps(first_word, indent=2)}")
+                else:
+                    logger.info(f"First word (not dict): {first_word}")
+
+                # Group words into segments
+                current_segment = None
+                for word_data in words:
+                    if isinstance(word_data, dict):
+                        # Try multiple possible field names for word text
+                        text = (
+                            word_data.get("word") or
+                            word_data.get("w") or
+                            word_data.get("utterance") or
+                            word_data.get("text") or
+                            word_data.get("value") or
+                            word_data.get("content") or
+                            ""
+                        )
+
+                        # Try multiple possible field names for timing
+                        start_ms = (
+                            word_data.get("start") or
+                            word_data.get("s") or
+                            word_data.get("startMs") or
+                            word_data.get("begin") or
+                            0
+                        )
+                        end_ms = (
+                            word_data.get("end") or
+                            word_data.get("e") or
+                            word_data.get("endMs") or
+                            word_data.get("finish") or
+                            start_ms + 500
+                        )
+                    elif isinstance(word_data, str):
+                        # Word might be just a string
+                        text = word_data
+                        start_ms = 0
+                        end_ms = 500
+                    else:
+                        continue
+
+                    start = start_ms / 1000.0 if start_ms > 100 else start_ms  # Convert ms to seconds if > 100
+                    end = end_ms / 1000.0 if end_ms > 100 else end_ms
+
+                    # Start new segment if gap > 1 second or first word
+                    if current_segment is None or start - current_segment['end'] > 1.0:
+                        if current_segment:
+                            segments.append(current_segment)
+                        current_segment = {
+                            'text': text,
+                            'start': start,
+                            'end': end,
+                            'speaker': 'speaker_0'
+                        }
+                    else:
+                        current_segment['text'] += ' ' + text
+                        current_segment['end'] = end
+
+                if current_segment:
+                    segments.append(current_segment)
+
+                logger.info(f"Created {len(segments)} segments from {len(words)} words")
+
+                # Log first few segments
+                for i, seg in enumerate(segments[:3]):
+                    logger.info(f"Segment {i}: text='{seg.get('text', '')[:80]}', start={seg.get('start')}, end={seg.get('end')}")
+
+            # Create default speaker
+            if segments:
+                speakers['speaker_0'] = {
+                    'id': 'speaker_0',
+                    'label': 'Speaker 1',
+                    'gender': 'unknown',
+                    'age': 'unknown'
+                }
+
+        except Exception as e:
+            logger.error(f"Error parsing JSON transcript: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+
+        logger.info(f"Parsed {len(segments)} segments from JSON transcript")
+        return segments, list(speakers.values())
+
     def _parse_async_results(self, result: Dict, console_session_id: str = None) -> Tuple[List[Dict], List[Dict]]:
         """Parse async transcription results.
 
@@ -562,16 +742,50 @@ class VoicegainTranscriber:
             logger.info(f"Transcript length: {len(transcript)} chars")
 
             if words:
-                # Log first few words for debugging
-                logger.info(f"First word sample: {words[0] if words else 'None'}")
+                # DETAILED DEBUG: Log word object structure to find correct field names
+                if words:
+                    first_word = words[0]
+                    logger.info(f"=== WORD OBJECT DEBUG ===")
+                    logger.info(f"Word type: {type(first_word)}")
+                    logger.info(f"Word keys: {first_word.keys() if isinstance(first_word, dict) else 'NOT A DICT'}")
+                    logger.info(f"Full first word: {json.dumps(first_word, indent=2) if isinstance(first_word, dict) else first_word}")
+                    if len(words) > 1:
+                        logger.info(f"Second word: {json.dumps(words[1], indent=2) if isinstance(words[1], dict) else words[1]}")
 
                 # Group words into segments based on gaps/pauses
                 current_segment = None
                 for word_data in words:
-                    # Word structure: {"word": "text", "start": ms, "end": ms, "confidence": float}
-                    text = word_data.get("word", word_data.get("text", ""))
-                    start = word_data.get("start", 0) / 1000.0  # Convert ms to seconds
-                    end = word_data.get("end", start * 1000 + 500) / 1000.0
+                    # Try multiple possible field names for word text
+                    # Different ASR APIs use: "word", "w", "utterance", "text", "value", "content"
+                    text = (
+                        word_data.get("word") or
+                        word_data.get("w") or
+                        word_data.get("utterance") or
+                        word_data.get("text") or
+                        word_data.get("value") or
+                        word_data.get("content") or
+                        str(word_data) if not isinstance(word_data, dict) else ""
+                    )
+
+                    # Try multiple possible field names for timing
+                    # Different APIs use: "start"/"end", "s"/"e", "startMs"/"endMs", "begin"/"finish"
+                    start_ms = (
+                        word_data.get("start") or
+                        word_data.get("s") or
+                        word_data.get("startMs") or
+                        word_data.get("begin") or
+                        0
+                    )
+                    end_ms = (
+                        word_data.get("end") or
+                        word_data.get("e") or
+                        word_data.get("endMs") or
+                        word_data.get("finish") or
+                        start_ms + 500
+                    )
+
+                    start = start_ms / 1000.0  # Convert ms to seconds
+                    end = end_ms / 1000.0
 
                     # Start new segment if gap > 1 second or first word
                     if current_segment is None or start - current_segment['end'] > 1.0:
@@ -591,6 +805,10 @@ class VoicegainTranscriber:
                     segments.append(current_segment)
 
                 logger.info(f"Created {len(segments)} segments from {len(words)} words")
+
+                # DEBUG: Log first few segments to verify text was captured
+                for i, seg in enumerate(segments[:3]):
+                    logger.info(f"Segment {i}: text='{seg.get('text', '')[:80]}', start={seg.get('start')}, end={seg.get('end')}")
 
             elif transcript:
                 # No word-level data, but we have transcript text
