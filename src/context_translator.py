@@ -354,8 +354,10 @@ class ContextAwareTranslator:
 
             if not para_segments:
                 # Paragraph doesn't match original segments exactly
-                # Use paragraph as-is
-                result_segments.append(para)
+                # Use paragraph as-is but ensure translated_text is set
+                para_copy = para.copy()
+                para_copy['translated_text'] = para.get('text', '')
+                result_segments.append(para_copy)
                 continue
 
             # Split translated text proportionally
@@ -390,6 +392,7 @@ class ContextAwareTranslator:
                 result_seg = seg.copy()
                 result_seg['original_text'] = seg['text']
                 result_seg['text'] = segment_text
+                result_seg['translated_text'] = segment_text  # TTS looks for this field
                 result_seg['translated'] = True
                 if 'speaker' in para:
                     result_seg['speaker'] = para['speaker']
