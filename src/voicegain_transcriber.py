@@ -12,7 +12,18 @@ import tempfile
 import subprocess
 from typing import List, Dict, Optional, Tuple
 from src.logging_config import get_logger
-from src.console_logger import console, log_api_call
+try:
+    from src.console_logger import console, log_api_call
+    CONSOLE_AVAILABLE = True
+except ImportError:
+    # Console logger not available yet
+    CONSOLE_AVAILABLE = False
+    class DummyConsole:
+        def log(self, *args, **kwargs):
+            pass
+    console = DummyConsole()
+    def log_api_call(*args, **kwargs):
+        pass
 
 logger = get_logger(__name__)
 
@@ -261,12 +272,7 @@ class VoicegainTranscriber:
                         "sensitivity": 0.5,
                         "speedVsAccuracy": 0.5,
                         "languages": ["en"]  # English (not en-US for async)
-                    },
-                    "formatters": [
-                        {
-                            "type": "basic"
-                        }
-                    ]
+                    }
                 }
             }
 
