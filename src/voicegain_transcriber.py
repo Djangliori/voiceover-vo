@@ -516,45 +516,70 @@ class VoicegainTranscriber:
         speakers = {}
 
         try:
-            # Try to get alternatives
+            # Log full result structure for debugging
+            logger.info(f"Full result keys: {result.keys() if result else 'None'}")
+            if "result" in result:
+                logger.info(f"result.result keys: {result['result'].keys() if result['result'] else 'None'}")
+                logger.info(f"result.result content: {json.dumps(result['result'], indent=2)[:1500]}")
+
+            # Try to get alternatives from different possible locations
+            alternatives = []
+
+            # Standard location: result.result.alternatives
             if "result" in result:
                 alternatives = result["result"].get("alternatives", [])
-                if alternatives:
-                    # Get words if available
-                    words = alternatives[0].get("words", [])
-                    if words:
-                        # Group words into segments
-                        current_segment = None
-                        for word in words:
-                            text = word.get("word", "")
-                            start = word.get("start", 0) / 1000.0
-                            end = word.get("end", start + 0.5) / 1000.0
+                logger.info(f"Found {len(alternatives)} alternatives in result.result")
 
-                            if current_segment is None or start - current_segment['end'] > 1.0:
-                                if current_segment:
-                                    segments.append(current_segment)
-                                current_segment = {
-                                    'text': text,
-                                    'start': start,
-                                    'end': end,
-                                    'speaker': 'speaker_0'
-                                }
-                            else:
-                                current_segment['text'] += ' ' + text
-                                current_segment['end'] = end
+            # Alternative location: result.alternatives (some async responses)
+            if not alternatives and "alternatives" in result:
+                alternatives = result.get("alternatives", [])
+                logger.info(f"Found {len(alternatives)} alternatives in result root")
 
-                        if current_segment:
-                            segments.append(current_segment)
-                    else:
-                        # Just get the full transcript
-                        utterance = alternatives[0].get("utterance", "")
-                        if utterance:
-                            segments.append({
-                                'text': utterance,
-                                'start': 0,
-                                'end': 10,
+            # Process alternatives if found
+            if alternatives:
+                logger.info(f"Processing {len(alternatives)} alternatives")
+                logger.info(f"First alternative keys: {alternatives[0].keys() if alternatives[0] else 'None'}")
+
+                # Get words if available
+                words = alternatives[0].get("words", [])
+                logger.info(f"Found {len(words)} words")
+
+                if words:
+                    # Group words into segments
+                    current_segment = None
+                    for word in words:
+                        text = word.get("word", "")
+                        start = word.get("start", 0) / 1000.0
+                        end = word.get("end", start + 0.5) / 1000.0
+
+                        if current_segment is None or start - current_segment['end'] > 1.0:
+                            if current_segment:
+                                segments.append(current_segment)
+                            current_segment = {
+                                'text': text,
+                                'start': start,
+                                'end': end,
                                 'speaker': 'speaker_0'
-                            })
+                            }
+                        else:
+                            current_segment['text'] += ' ' + text
+                            current_segment['end'] = end
+
+                    if current_segment:
+                        segments.append(current_segment)
+                else:
+                    # Just get the full transcript
+                    utterance = alternatives[0].get("utterance", "")
+                    logger.info(f"No words, checking utterance: '{utterance[:200] if utterance else 'None'}'...")
+                    if utterance:
+                        segments.append({
+                            'text': utterance,
+                            'start': 0,
+                            'end': 10,
+                            'speaker': 'speaker_0'
+                        })
+            else:
+                logger.warning("No alternatives found in result!")
 
             # Create a default speaker
             if segments:
@@ -567,6 +592,8 @@ class VoicegainTranscriber:
 
         except Exception as e:
             logger.error(f"Error parsing async results: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
 
         logger.info(f"Parsed {len(segments)} segments")
         return segments, list(speakers.values())
