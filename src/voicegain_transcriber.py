@@ -51,6 +51,58 @@ class VoicegainTranscriber:
 
         logger.info("Voicegain transcriber initialized (unlimited size version)")
 
+        # Store speakers for multi-voice support
+        self._speakers = []
+        self._segments = []
+
+    def transcribe(
+        self,
+        audio_path: str,
+        progress_callback: Optional[callable] = None
+    ) -> List[Dict]:
+        """
+        Main transcribe method called by tasks.py
+        Stores speakers internally for later retrieval
+        """
+        segments, speakers = self.transcribe_with_analytics(audio_path, progress_callback)
+        self._segments = segments
+        self._speakers = speakers
+        return segments
+
+    def has_speaker_diarization(self) -> bool:
+        """Check if multiple speakers were detected"""
+        return len(self._speakers) > 1
+
+    def get_speakers(self) -> List[Dict]:
+        """Get detected speakers"""
+        return self._speakers
+
+    def merge_short_segments(self, segments: List[Dict], min_duration: float = 2.0) -> List[Dict]:
+        """Merge segments shorter than min_duration with adjacent segments"""
+        if not segments:
+            return segments
+
+        merged = []
+        current = None
+
+        for seg in segments:
+            duration = seg.get('end', 0) - seg.get('start', 0)
+
+            if current is None:
+                current = seg.copy()
+            elif duration < min_duration or (seg.get('end', 0) - seg.get('start', 0)) < min_duration:
+                # Merge with current
+                current['text'] = current.get('text', '') + ' ' + seg.get('text', '')
+                current['end'] = seg.get('end', current.get('end', 0))
+            else:
+                merged.append(current)
+                current = seg.copy()
+
+        if current:
+            merged.append(current)
+
+        return merged
+
     def transcribe_with_analytics(
         self,
         audio_path: str,
@@ -705,14 +757,17 @@ class VoicegainTranscriber:
                 for i, seg in enumerate(segments[:3]):
                     logger.info(f"Segment {i}: text='{seg.get('text', '')[:80]}', start={seg.get('start')}, end={seg.get('end')}")
 
-            # Create default speaker
+            # Build speakers dict from unique speaker IDs found in segments
             if segments:
-                speakers['speaker_0'] = {
-                    'id': 'speaker_0',
-                    'label': 'Speaker 1',
-                    'gender': 'unknown',
-                    'age': 'unknown'
-                }
+                unique_speakers = set(seg.get('speaker', 'speaker_0') for seg in segments)
+                for i, spk_id in enumerate(sorted(unique_speakers)):
+                    speakers[spk_id] = {
+                        'id': spk_id,
+                        'label': f'Speaker {i + 1}',
+                        'gender': 'unknown',
+                        'age': 'unknown'
+                    }
+                logger.info(f"Found {len(speakers)} unique speakers: {list(speakers.keys())}")
 
         except Exception as e:
             logger.error(f"Error parsing JSON transcript: {e}")
