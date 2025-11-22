@@ -344,13 +344,18 @@ class ContextAwareTranslator:
             progress_callback("Restoring original timing...")
 
         result_segments = []
+        used_segments = set()  # Track which segments have been processed
 
-        for para in translated_paragraphs:
-            # Find original segments that belong to this paragraph
+        for para_idx, para in enumerate(translated_paragraphs):
+            # Find original segments that overlap with this paragraph
+            # Use overlap matching (not strict containment) for robustness
             para_segments = [
                 seg for seg in original_segments
-                if seg['start'] >= para['start'] and seg['end'] <= para['end']
+                if seg['start'] < para['end'] and seg['end'] > para['start']  # Overlaps
+                and id(seg) not in used_segments  # Not already used
             ]
+
+            logger.info(f"Para {para_idx} [{para.get('start', 0):.1f}s-{para.get('end', 0):.1f}s]: matched {len(para_segments)} segments")
 
             if not para_segments:
                 # Paragraph doesn't match original segments exactly
@@ -358,41 +363,31 @@ class ContextAwareTranslator:
                 para_copy = para.copy()
                 para_copy['translated_text'] = para.get('text', '')
                 result_segments.append(para_copy)
+                logger.info(f"  -> Using paragraph as segment (no matching original segments)")
                 continue
 
-            # Split translated text proportionally
-            translated_text = para['text']
-            translated_words = translated_text.split()
-
-            # Calculate word distribution
-            total_original_words = sum(len(seg['text'].split()) for seg in para_segments)
-            if total_original_words == 0:
-                total_original_words = 1
-
-            word_index = 0
+            # Mark segments as used
             for seg in para_segments:
-                # Calculate proportion of words for this segment
-                original_words = len(seg['text'].split())
-                proportion = original_words / total_original_words
-                segment_word_count = int(len(translated_words) * proportion)
+                used_segments.add(id(seg))
 
-                # Extract words for this segment
-                if word_index < len(translated_words):
-                    if seg == para_segments[-1]:  # Last segment gets remaining words
-                        segment_words = translated_words[word_index:]
-                    else:
-                        segment_words = translated_words[word_index:word_index + segment_word_count]
+            # Put all translated text in the first segment of the paragraph
+            # This is simpler and more reliable than proportional splitting
+            translated_text = para.get('text', '')
+            logger.info(f"  -> Text ({len(translated_text)} chars): {translated_text[:80]}...")
 
-                    segment_text = ' '.join(segment_words)
-                    word_index += len(segment_words)
-                else:
-                    segment_text = ""
-
-                # Create result segment
+            for i, seg in enumerate(para_segments):
                 result_seg = seg.copy()
                 result_seg['original_text'] = seg['text']
-                result_seg['text'] = segment_text
-                result_seg['translated_text'] = segment_text  # TTS looks for this field
+
+                if i == 0:
+                    # First segment gets all the translated text
+                    result_seg['text'] = translated_text
+                    result_seg['translated_text'] = translated_text
+                else:
+                    # Other segments in this paragraph get empty (will be skipped by TTS)
+                    result_seg['text'] = ""
+                    result_seg['translated_text'] = ""
+
                 result_seg['translated'] = True
                 if 'speaker' in para:
                     result_seg['speaker'] = para['speaker']
