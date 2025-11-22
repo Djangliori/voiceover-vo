@@ -210,6 +210,9 @@ class Database:
         # Create tables
         Base.metadata.create_all(self.engine)
 
+        # Run migrations for new columns
+        self._run_migrations()
+
     def get_session(self):
         """Get database session"""
         return self.Session()
@@ -217,6 +220,29 @@ class Database:
     def close_session(self, session):
         """Close database session"""
         session.close()
+
+    def _run_migrations(self):
+        """Run database migrations for new columns"""
+        from sqlalchemy import inspect, text
+
+        inspector = inspect(self.engine)
+
+        # Check if videos table exists
+        if 'videos' not in inspector.get_table_names():
+            return
+
+        # Get existing columns in videos table
+        columns = {col['name'] for col in inspector.get_columns('videos')}
+
+        # Add debug_data column if it doesn't exist
+        if 'debug_data' not in columns:
+            with self.engine.connect() as conn:
+                try:
+                    conn.execute(text('ALTER TABLE videos ADD COLUMN debug_data TEXT'))
+                    conn.commit()
+                    logger.info("Migration: Added debug_data column to videos table")
+                except Exception as e:
+                    logger.warning(f"Migration: debug_data column may already exist: {e}")
 
     def get_video_by_id(self, video_id):
         """
