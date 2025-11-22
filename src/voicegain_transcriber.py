@@ -307,7 +307,7 @@ class VoicegainTranscriber:
                         "incremental": []
                     },
                     "poll": {
-                        "afterlife": 60000,  # Keep results for 60 seconds after completion
+                        "afterlife": 300000,  # Keep results for 5 minutes after completion
                         "persist": 0  # Don't persist to storage
                     }
                 }],
@@ -409,10 +409,16 @@ class VoicegainTranscriber:
                     continue  # Not ready yet
 
                 if response.status_code != 200:
-                    logger.warning(f"Poll {i}: Status {response.status_code}")
+                    logger.warning(f"Poll {i}: Status {response.status_code} - {response.text[:500]}")
                     continue
 
                 result = response.json()
+
+                # Log poll response for debugging (first poll and every 10th)
+                if i == 0 or i % 10 == 0:
+                    logger.info(f"Poll {i} response keys: {result.keys()}")
+                    if "session" in result:
+                        logger.info(f"Poll {i} session: {result['session']}")
 
                 # Check if done - NOTE: 'final' is under 'session', not 'result'!
                 session_final = result.get("session", {}).get("final", False)
