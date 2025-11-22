@@ -53,38 +53,75 @@ class VoiceManager:
         auto_detect_gender: bool = True
     ) -> Dict[str, VoiceProfile]:
         """
-        Assign voices to speakers based on characteristics
+        Assign voices to speakers based on Voicegain gender/age detection
 
         Args:
-            speakers: List of speaker profiles from transcription
-            segments: Optional segments for gender detection
-            auto_detect_gender: Whether to auto-detect gender from content
+            speakers: List of speaker profiles from Voicegain with gender/age
+            segments: Optional segments for additional context
+            auto_detect_gender: Ignored - we use Voicegain's gender detection
 
         Returns:
             Dictionary mapping speaker IDs to voice profiles
         """
         assignments = {}
+        import random
+
+        # Track used voices to ensure variety
+        used_male_voices = []
+        used_female_voices = []
 
         for i, speaker in enumerate(speakers):
             speaker_id = speaker.get('id', f'speaker_{i}')
+            voicegain_gender = speaker.get('gender', 'unknown').lower()
+            voicegain_age = speaker.get('age', 'unknown').lower()
 
-            # Try to detect gender if enabled
-            gender = None
-            if auto_detect_gender and segments:
-                gender = self._detect_speaker_gender(speaker_id, segments)
-
-            # Assign voice based on gender or round-robin
-            if gender == Gender.MALE and self.male_voices:
-                voice = self.male_voices[i % len(self.male_voices)]
-            elif gender == Gender.FEMALE and self.female_voices:
-                voice = self.female_voices[i % len(self.female_voices)]
+            # Map Voicegain gender to our Gender enum
+            if voicegain_gender == 'male':
+                gender = Gender.MALE
+                available_pool = self.male_voices.copy()
+                used_pool = used_male_voices
+            elif voicegain_gender == 'female':
+                gender = Gender.FEMALE
+                available_pool = self.female_voices.copy()
+                used_pool = used_female_voices
             else:
-                # Alternate between male and female for unknown gender
+                # Unknown gender - pick randomly
+                gender = random.choice([Gender.MALE, Gender.FEMALE])
+                available_pool = (self.male_voices if gender == Gender.MALE else self.female_voices).copy()
+                used_pool = used_male_voices if gender == Gender.MALE else used_female_voices
+
+            # Filter by age if possible
+            if voicegain_age == 'young-adult':
+                # Prefer young voices
+                age_filtered = [v for v in available_pool if v.age_group == AgeGroup.YOUNG]
+                if age_filtered:
+                    available_pool = age_filtered
+            elif voicegain_age == 'senior':
+                # Prefer middle-aged or old voices
+                age_filtered = [v for v in available_pool if v.age_group in [AgeGroup.MIDDLE_AGED, AgeGroup.OLD]]
+                if age_filtered:
+                    available_pool = age_filtered
+
+            # Remove already used voices for variety
+            unused_voices = [v for v in available_pool if v.id not in used_pool]
+            if unused_voices:
+                available_pool = unused_voices
+            else:
+                # All voices used, reset the pool
+                used_pool.clear()
+
+            # Randomly select a voice from the appropriate pool
+            if available_pool:
+                voice = random.choice(available_pool)
+                used_pool.append(voice.id)
+            else:
+                # Fallback to any voice
                 all_voices = self.male_voices + self.female_voices
                 voice = all_voices[i % len(all_voices)]
 
             assignments[speaker_id] = voice
-            logger.info(f"Assigned {voice.name} ({voice.provider}) to {speaker.get('label', speaker_id)}")
+            logger.info(f"Assigned {voice.name} ({voice.provider}, {voice.gender.value}, {voice.age_group.value}) "
+                       f"to {speaker.get('label', speaker_id)} ({voicegain_gender}, {voicegain_age})")
 
         self.voice_assignments = assignments
         return assignments

@@ -15,10 +15,9 @@ class Config:
     """Central configuration class with validation"""
 
     # API Keys
-    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+    VOICEGAIN_API_KEY = os.getenv('VOICEGAIN_API_KEY')
     ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
     RAPIDAPI_KEY = os.getenv('RAPIDAPI_KEY')
-    ASSEMBLYAI_API_KEY = os.getenv('ASSEMBLYAI_API_KEY')
 
     # Flask Configuration
     FLASK_PORT = int(os.getenv('FLASK_PORT', 5001))
@@ -33,11 +32,8 @@ class Config:
     # Audio Settings
     ORIGINAL_AUDIO_VOLUME = float(os.getenv('ORIGINAL_AUDIO_VOLUME', 0.05))
     VOICEOVER_VOLUME = float(os.getenv('VOICEOVER_VOLUME', 1.0))
-    WHISPER_MODEL = os.getenv('WHISPER_MODEL', 'base')
 
-    # Transcription Settings
-    TRANSCRIPTION_PROVIDER = os.getenv('TRANSCRIPTION_PROVIDER', 'assemblyai')  # 'assemblyai' or 'whisper'
-    ENABLE_SPEAKER_DIARIZATION = os.getenv('ENABLE_SPEAKER_DIARIZATION', 'true').lower() == 'true'
+    # Transcription Settings (Voicegain only)
     MAX_SPEAKERS = int(os.getenv('MAX_SPEAKERS', 10))  # Maximum speakers to detect
     SPEAKER_MERGE_PAUSE = float(os.getenv('SPEAKER_MERGE_PAUSE', 1.5))  # Seconds between segments to merge
 
@@ -83,14 +79,14 @@ class Config:
         errors = []
 
         # Check required API keys
-        if not cls.OPENAI_API_KEY:
-            errors.append("OPENAI_API_KEY is required")
-        if not cls.ELEVENLABS_API_KEY:
-            errors.append("ELEVENLABS_API_KEY is required")
+        if not cls.VOICEGAIN_API_KEY:
+            errors.append("VOICEGAIN_API_KEY is required")
 
-        # Check transcription provider API key
-        if cls.TRANSCRIPTION_PROVIDER == 'assemblyai' and not cls.ASSEMBLYAI_API_KEY:
-            errors.append("ASSEMBLYAI_API_KEY is required when using AssemblyAI transcription")
+        # TTS provider API key (at least one required)
+        if cls.TTS_PROVIDER == 'elevenlabs' and not cls.ELEVENLABS_API_KEY:
+            errors.append("ELEVENLABS_API_KEY is required when using ElevenLabs TTS")
+        elif cls.TTS_PROVIDER == 'gemini' and not os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
+            errors.append("GOOGLE_APPLICATION_CREDENTIALS required for Gemini TTS")
 
         # Validate numeric ranges
         if not 0 <= cls.ORIGINAL_AUDIO_VOLUME <= 1:
