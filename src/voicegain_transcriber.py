@@ -663,30 +663,34 @@ class VoicegainTranscriber:
 
                         for word_obj in nested_words:
                             if isinstance(word_obj, dict):
-                                # Voicegain uses "w" for word text in nested structure
+                                # Voicegain nested word structure:
+                                # - "utterance" for word text
+                                # - "start" for start time in ms
+                                # - "duration" for duration in ms (NOT end!)
                                 word_text = (
+                                    word_obj.get("utterance") or
                                     word_obj.get("w") or
                                     word_obj.get("word") or
-                                    word_obj.get("utterance") or
                                     word_obj.get("text") or
                                     ""
                                 )
-                                word_start = word_obj.get("s", word_obj.get("start", 0))
-                                word_end = word_obj.get("e", word_obj.get("end", word_start + 100))
+                                word_start_ms = word_obj.get("start", word_obj.get("s", 0))
+                                word_duration_ms = word_obj.get("duration", 100)
+                                word_end_ms = word_start_ms + word_duration_ms
 
                                 if word_text:
                                     phrase_text_parts.append(word_text)
                                     if phrase_start is None:
-                                        phrase_start = word_start
-                                    phrase_end = word_end
+                                        phrase_start = word_start_ms
+                                    phrase_end = word_end_ms
                             elif isinstance(word_obj, str):
                                 phrase_text_parts.append(word_obj)
 
                         # Create segment from this phrase
                         if phrase_text_parts:
-                            # Convert ms to seconds
-                            start_sec = (phrase_start / 1000.0) if phrase_start and phrase_start > 100 else (phrase_start or 0)
-                            end_sec = (phrase_end / 1000.0) if phrase_end and phrase_end > 100 else (phrase_end or start_sec + 1)
+                            # Convert ms to seconds (Voicegain uses milliseconds)
+                            start_sec = phrase_start / 1000.0 if phrase_start else 0
+                            end_sec = phrase_end / 1000.0 if phrase_end else (start_sec + 1)
 
                             segments.append({
                                 'text': ' '.join(phrase_text_parts),
