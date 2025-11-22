@@ -85,13 +85,31 @@ class GeminiTextToSpeech:
         temp_path = Path(temp_dir)
         temp_path.mkdir(exist_ok=True)
 
+        # Filter out segments with empty text
+        valid_segments = []
+        skipped_indices = []
+        for i, seg in enumerate(segments):
+            text = seg.get('translated_text', '').strip()
+            if text:
+                valid_segments.append((i, seg))
+            else:
+                skipped_indices.append(i)
+                logger.warning(f"Skipping segment {i} - empty translated text")
+
+        if skipped_indices:
+            logger.info(f"Skipped {len(skipped_indices)} segments with empty text: {skipped_indices}")
+
         if progress_callback:
-            progress_callback(f"Generating Georgian voiceover with Gemini TTS ({len(segments)} segments)...")
+            progress_callback(f"Generating Georgian voiceover with Gemini TTS ({len(valid_segments)} segments)...")
+
+        if not valid_segments:
+            logger.warning("No valid segments to process")
+            return []
 
         # Process segments in parallel
         results = {}
         completed_count = 0
-        total_segments = len(segments)
+        total_segments = len(valid_segments)
 
         def process_segment(args):
             """Process a single segment - runs in thread pool"""
@@ -100,10 +118,10 @@ class GeminiTextToSpeech:
 
         # Use ThreadPoolExecutor for parallel API calls
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # Submit all tasks
+            # Submit all tasks for valid segments only
             futures = {
-                executor.submit(process_segment, (i, seg)): i
-                for i, seg in enumerate(segments)
+                executor.submit(process_segment, (idx, seg)): idx
+                for idx, seg in valid_segments
             }
 
             # Process completed tasks as they finish
@@ -120,8 +138,8 @@ class GeminiTextToSpeech:
                     idx = futures[future]
                     raise Exception(f"Failed to generate segment {idx}: {str(e)}")
 
-        # Sort results by original index to maintain order
-        voiceover_segments = [results[i] for i in range(len(segments))]
+        # Return only the results we have (valid segments), sorted by original index
+        voiceover_segments = [results[idx] for idx, _ in valid_segments if idx in results]
 
         if progress_callback:
             progress_callback(f"Voiceover generation complete: {len(voiceover_segments)} segments")
