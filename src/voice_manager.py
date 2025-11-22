@@ -1,6 +1,6 @@
 """
 Voice Manager Module
-Handles multi-voice synthesis for both ElevenLabs and Gemini TTS
+Handles multi-voice synthesis for Gemini TTS
 Manages speaker-to-voice assignment and maintains parallel processing
 """
 
@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 from src.voice_profiles import (
     VoiceProfile, Gender, AgeGroup,
-    ELEVENLABS_VOICES, GEMINI_VOICES, VOICE_EQUIVALENTS,
+    GEMINI_VOICES,
     VoiceSelector
 )
 from src.config import Config
@@ -20,30 +20,22 @@ logger = get_logger(__name__)
 
 
 class VoiceManager:
-    """Manages multi-voice synthesis across providers"""
+    """Manages multi-voice synthesis for Gemini TTS"""
 
-    def __init__(self, provider: str = None):
-        """
-        Initialize voice manager
-
-        Args:
-            provider: TTS provider ('elevenlabs' or 'gemini')
-        """
-        self.provider = provider or Config.TTS_PROVIDER
+    def __init__(self):
+        """Initialize voice manager for Gemini TTS"""
+        self.provider = "gemini"
         self.voice_assignments = {}  # speaker_id -> voice_profile
         self.voice_selector = VoiceSelector()
 
-        # Load available voices for provider
-        self.available_voices = (
-            ELEVENLABS_VOICES if self.provider == "elevenlabs"
-            else GEMINI_VOICES
-        )
+        # Load available voices
+        self.available_voices = GEMINI_VOICES
 
         # Initialize voice pools for round-robin assignment
         self.male_voices = [v for v in self.available_voices.values() if v.gender == Gender.MALE]
         self.female_voices = [v for v in self.available_voices.values() if v.gender == Gender.FEMALE]
 
-        logger.info(f"VoiceManager initialized for {self.provider}: "
+        logger.info(f"VoiceManager initialized for Gemini: "
                    f"{len(self.male_voices)} male, {len(self.female_voices)} female voices")
 
     def assign_voices_to_speakers(
@@ -85,10 +77,11 @@ class VoiceManager:
                 available_pool = self.female_voices.copy()
                 used_pool = used_female_voices
             else:
-                # Unknown gender - pick randomly
-                gender = random.choice([Gender.MALE, Gender.FEMALE])
-                available_pool = (self.male_voices if gender == Gender.MALE else self.female_voices).copy()
-                used_pool = used_male_voices if gender == Gender.MALE else used_female_voices
+                # Unknown gender - default to male (most YouTube content has male speakers)
+                gender = Gender.MALE
+                available_pool = self.male_voices.copy()
+                used_pool = used_male_voices
+                logger.info(f"Speaker {speaker_id} has unknown gender, defaulting to male voice")
 
             # Filter by age if possible
             if voicegain_age == 'young-adult':
@@ -97,8 +90,8 @@ class VoiceManager:
                 if age_filtered:
                     available_pool = age_filtered
             elif voicegain_age == 'senior':
-                # Prefer middle-aged or old voices
-                age_filtered = [v for v in available_pool if v.age_group in [AgeGroup.MIDDLE_AGED, AgeGroup.OLD]]
+                # Prefer mature voices
+                age_filtered = [v for v in available_pool if v.age_group == AgeGroup.MATURE]
                 if age_filtered:
                     available_pool = age_filtered
 
@@ -120,7 +113,7 @@ class VoiceManager:
                 voice = all_voices[i % len(all_voices)]
 
             assignments[speaker_id] = voice
-            logger.info(f"Assigned {voice.name} ({voice.provider}, {voice.gender.value}, {voice.age_group.value}) "
+            logger.info(f"Assigned {voice.name} ({voice.gender.value}, {voice.age_group.value}) "
                        f"to {speaker.get('label', speaker_id)} ({voicegain_gender}, {voicegain_age})")
 
         self.voice_assignments = assignments
@@ -154,7 +147,6 @@ class VoiceManager:
         combined_text = ' '.join(speaker_texts)
 
         # Simple heuristic-based gender detection
-        # (In production, you might use a more sophisticated method)
         male_indicators = ['my wife', 'i am a man', 'as a father', 'my girlfriend']
         female_indicators = ['my husband', 'i am a woman', 'as a mother', 'my boyfriend']
 
@@ -215,47 +207,6 @@ class VoiceManager:
 
         return prepared
 
-    def get_fallback_voice(
-        self,
-        original_voice_id: str,
-        target_provider: str
-    ) -> Optional[str]:
-        """
-        Get equivalent voice in fallback provider
-
-        Args:
-            original_voice_id: Voice ID/name in original provider
-            target_provider: Target provider for fallback
-
-        Returns:
-            Equivalent voice ID/name or None
-        """
-        # Check direct mapping
-        if original_voice_id in VOICE_EQUIVALENTS:
-            return VOICE_EQUIVALENTS[original_voice_id]
-
-        # Try to find similar voice by characteristics
-        original_voice = None
-        for voice in self.available_voices.values():
-            if voice.id == original_voice_id:
-                original_voice = voice
-                break
-
-        if original_voice:
-            # Find voice with similar characteristics in target provider
-            equivalent = self.voice_selector.get_voice_by_characteristics(
-                target_provider,
-                gender=original_voice.gender,
-                age_group=original_voice.age_group,
-                style_tags=original_voice.style_tags
-            )
-            if equivalent:
-                return equivalent.id
-
-        # Default fallback
-        target_voices = ELEVENLABS_VOICES if target_provider == "elevenlabs" else GEMINI_VOICES
-        return list(target_voices.values())[0].id if target_voices else None
-
     def group_segments_by_voice(
         self,
         segments: List[Dict]
@@ -281,44 +232,6 @@ class VoiceManager:
 
         return dict(grouped)
 
-    def optimize_parallel_processing(
-        self,
-        segments: List[Dict],
-        max_workers: int = None
-    ) -> List[List[Dict]]:
-        """
-        Optimize segment batching for parallel TTS processing
-
-        Args:
-            segments: List of segments
-            max_workers: Maximum parallel workers
-
-        Returns:
-            List of segment batches optimized for parallel processing
-        """
-        if not max_workers:
-            max_workers = (
-                Config.ELEVENLABS_MAX_CONCURRENT if self.provider == "elevenlabs"
-                else Config.GEMINI_TTS_MAX_CONCURRENT
-            )
-
-        # Group by voice to minimize voice switching
-        voice_groups = self.group_segments_by_voice(segments)
-
-        # Create balanced batches
-        batches = []
-        batch_size = max(1, len(segments) // max_workers)
-
-        for voice_id, voice_segments in voice_groups.items():
-            # Split voice group into batches
-            for i in range(0, len(voice_segments), batch_size):
-                batch = voice_segments[i:i + batch_size]
-                batches.append(batch)
-
-        logger.info(f"Created {len(batches)} batches for {max_workers} workers")
-
-        return batches
-
     def generate_voiceover_multivoice(
         self,
         tts_provider,
@@ -330,7 +243,7 @@ class VoiceManager:
         Generate multi-voice voiceover using assigned voices
 
         Args:
-            tts_provider: TTS provider instance (ElevenLabs or Gemini)
+            tts_provider: TTS provider instance (Gemini)
             segments: Segments with voice assignments
             temp_dir: Temporary directory for audio files
             progress_callback: Progress callback
@@ -377,7 +290,6 @@ class VoiceManager:
                 progress_callback(f"Completed {processed}/{total_segments} segments")
 
         # Sort results back to original order
-        # (Assuming segments have an index or we can match by content)
         results.sort(key=lambda x: segments.index(
             next((s for s in segments if s.get('text') == x.get('text')), segments[0])
         ))
@@ -414,35 +326,3 @@ class VoiceManager:
             }
 
         return config
-
-    @staticmethod
-    def create_voice_mapping_config() -> Dict:
-        """
-        Create a configuration template for manual voice mapping
-
-        Returns:
-            Template configuration for voice mapping
-        """
-        template = {
-            'voice_mapping': {
-                'speaker_1': {
-                    'elevenlabs': 'TX3LPaxmHKxFdv7VOQHJ',  # Liam
-                    'gemini': 'Orus',
-                    'gender': 'male',
-                    'description': 'Main narrator'
-                },
-                'speaker_2': {
-                    'elevenlabs': '21m00Tcm4TlvDq8ikWAM',  # Rachel
-                    'gemini': 'Kore',
-                    'gender': 'female',
-                    'description': 'Secondary speaker'
-                }
-            },
-            'auto_assign': {
-                'enabled': True,
-                'detect_gender': True,
-                'round_robin': True
-            }
-        }
-
-        return template

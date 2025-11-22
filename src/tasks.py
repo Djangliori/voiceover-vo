@@ -130,7 +130,7 @@ def process_video_task(self, video_id, youtube_url, user_id=None):
         downloader = VideoDownloader(temp_dir=temp_dir)
         transcriber = Transcriber()
         translator = Translator()
-        tts = get_tts_provider()  # Uses TTS_PROVIDER env var (elevenlabs or gemini)
+        tts = get_tts_provider()  # Uses Gemini TTS
         mixer = AudioMixer(
             original_volume=original_volume,
             voiceover_volume=voiceover_volume
@@ -227,7 +227,7 @@ def process_video_task(self, video_id, youtube_url, user_id=None):
 
             # Initialize voice manager
             from src.voice_manager import VoiceManager
-            voice_manager = VoiceManager(provider=Config.TTS_PROVIDER)
+            voice_manager = VoiceManager()
 
             # Assign voices to speakers
             voice_assignments = voice_manager.assign_voices_to_speakers(

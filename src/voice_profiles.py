@@ -1,6 +1,6 @@
 """
 Voice Profiles Configuration
-Defines available voices for both ElevenLabs and Google Gemini TTS
+Defines available voices for Google Gemini TTS
 Includes voice characteristics and recommended use cases
 """
 
@@ -24,9 +24,9 @@ class AgeGroup(Enum):
 @dataclass
 class VoiceProfile:
     """Voice profile with characteristics"""
-    id: str  # Voice ID or name
+    id: str  # Voice name
     name: str  # Display name
-    provider: str  # elevenlabs or gemini
+    provider: str  # Always 'gemini'
     gender: Gender
     age_group: AgeGroup
     description: str
@@ -34,106 +34,7 @@ class VoiceProfile:
     style_tags: List[str]  # e.g., ["warm", "professional", "energetic"]
 
 
-# ElevenLabs Voice Profiles (Premade voices that support Georgian)
-# Selected voices that work well for multi-speaker scenarios
-ELEVENLABS_VOICES = {
-    # Male voices
-    "liam": VoiceProfile(
-        id="TX3LPaxmHKxFdv7VOQHJ",
-        name="Liam",
-        provider="elevenlabs",
-        gender=Gender.MALE,
-        age_group=AgeGroup.MIDDLE,
-        description="Clear male voice, professional narrator",
-        language_support=["ka-GE", "multilingual"],
-        style_tags=["clear", "professional", "narrator"]
-    ),
-    "adam": VoiceProfile(
-        id="pNInz6obpgDQGcFmaJgB",
-        name="Adam",
-        provider="elevenlabs",
-        gender=Gender.MALE,
-        age_group=AgeGroup.MATURE,
-        description="Deep male voice with authority",
-        language_support=["ka-GE", "multilingual"],
-        style_tags=["deep", "authoritative", "news"]
-    ),
-    "daniel": VoiceProfile(
-        id="onwK4e9ZLuTAKqWW03F9",
-        name="Daniel",
-        provider="elevenlabs",
-        gender=Gender.MALE,
-        age_group=AgeGroup.YOUNG,
-        description="British accent, younger male voice",
-        language_support=["ka-GE", "multilingual"],
-        style_tags=["young", "british", "friendly"]
-    ),
-    "josh": VoiceProfile(
-        id="TxGEqnHWrfWFTfGW9XjX",
-        name="Josh",
-        provider="elevenlabs",
-        gender=Gender.MALE,
-        age_group=AgeGroup.YOUNG,
-        description="Young adult male, casual tone",
-        language_support=["ka-GE", "multilingual"],
-        style_tags=["casual", "young", "conversational"]
-    ),
-    # Female voices
-    "rachel": VoiceProfile(
-        id="21m00Tcm4TlvDq8ikWAM",
-        name="Rachel",
-        provider="elevenlabs",
-        gender=Gender.FEMALE,
-        age_group=AgeGroup.MIDDLE,
-        description="American female, warm and professional",
-        language_support=["ka-GE", "multilingual"],
-        style_tags=["warm", "professional", "clear"]
-    ),
-    "bella": VoiceProfile(
-        id="EXAVITQu4vr4xnSDxMaL",
-        name="Bella",
-        provider="elevenlabs",
-        gender=Gender.FEMALE,
-        age_group=AgeGroup.YOUNG,
-        description="Soft, younger female voice",
-        language_support=["ka-GE", "multilingual"],
-        style_tags=["soft", "young", "friendly"]
-    ),
-    "dorothy": VoiceProfile(
-        id="ThT5KcBeYPX3keUQqHPh",
-        name="Dorothy",
-        provider="elevenlabs",
-        gender=Gender.FEMALE,
-        age_group=AgeGroup.MATURE,
-        description="British female, pleasant tone",
-        language_support=["ka-GE", "multilingual"],
-        style_tags=["british", "pleasant", "mature"]
-    ),
-    "charlotte": VoiceProfile(
-        id="XB0fDUnXU5powFXDhCwa",
-        name="Charlotte",
-        provider="elevenlabs",
-        gender=Gender.FEMALE,
-        age_group=AgeGroup.MIDDLE,
-        description="Swedish/English accent, seductive",
-        language_support=["ka-GE", "multilingual"],
-        style_tags=["seductive", "accent", "sophisticated"]
-    ),
-    # Additional useful voice
-    "antoni": VoiceProfile(
-        id="ErXwobaYiN019PkySvjV",
-        name="Antoni",
-        provider="elevenlabs",
-        gender=Gender.MALE,  # Listed as male in ElevenLabs
-        age_group=AgeGroup.MIDDLE,
-        description="Well-rounded American male voice",
-        language_support=["ka-GE", "multilingual"],
-        style_tags=["balanced", "american", "clear"]
-    )
-}
-
-
-# Google Gemini Voice Profiles (All 28 available voices)
+# Google Gemini Voice Profiles (Selected voices for variety)
 # Gemini voices are celestial-themed - 14 female, 14 male voices
 GEMINI_VOICES = {
     # Male voices (selected for variety)
@@ -182,7 +83,7 @@ GEMINI_VOICES = {
         id="Achernar",
         name="Achernar",
         provider="gemini",
-        gender=Gender.FEMALE,  # Achernar is actually female
+        gender=Gender.FEMALE,
         age_group=AgeGroup.MIDDLE,
         description="Clear professional female voice",
         language_support=["ka-GE", "multilingual"],
@@ -236,46 +137,18 @@ GEMINI_ALL_VOICES = {
 }
 
 
-# Voice mapping between providers for fallback
-# Maps voice IDs/names to equivalent voices in the other provider
-VOICE_EQUIVALENTS = {
-    # ElevenLabs ID -> Gemini name mapping
-    "TX3LPaxmHKxFdv7VOQHJ": "Orus",       # Liam -> Orus (male middle)
-    "pNInz6obpgDQGcFmaJgB": "Charon",     # Adam -> Charon (male mature)
-    "onwK4e9ZLuTAKqWW03F9": "Puck",       # Daniel -> Puck (male young)
-    "TxGEqnHWrfWFTfGW9XjX": "Puck",       # Josh -> Puck (male young)
-    "21m00Tcm4TlvDq8ikWAM": "Kore",       # Rachel -> Kore (female middle)
-    "EXAVITQu4vr4xnSDxMaL": "Aoede",      # Bella -> Aoede (female young)
-    "ThT5KcBeYPX3keUQqHPh": "Achernar",   # Dorothy -> Achernar (female mature)
-    "XB0fDUnXU5powFXDhCwa": "Kore",       # Charlotte -> Kore (female middle)
-    "ErXwobaYiN019PkySvjV": "Orus",       # Antoni -> Orus (male middle)
-
-    # Gemini name -> ElevenLabs ID mapping (reverse)
-    "Charon": "pNInz6obpgDQGcFmaJgB",     # Charon -> Adam
-    "Puck": "TxGEqnHWrfWFTfGW9XjX",       # Puck -> Josh
-    "Orus": "TX3LPaxmHKxFdv7VOQHJ",       # Orus -> Liam
-    "Fenrir": "pNInz6obpgDQGcFmaJgB",     # Fenrir -> Adam
-    "Achernar": "21m00Tcm4TlvDq8ikWAM",   # Achernar -> Rachel
-    "Kore": "21m00Tcm4TlvDq8ikWAM",       # Kore -> Rachel
-    "Aoede": "EXAVITQu4vr4xnSDxMaL",      # Aoede -> Bella
-    "Zephyr": "EXAVITQu4vr4xnSDxMaL",     # Zephyr -> Bella
-}
-
-
 class VoiceSelector:
     """Helper class for voice selection logic"""
 
     @staticmethod
-    def get_voice_by_gender(provider: str, gender: Gender) -> Optional[VoiceProfile]:
+    def get_voice_by_gender(gender: Gender) -> Optional[VoiceProfile]:
         """Get first available voice matching gender"""
-        voices = ELEVENLABS_VOICES if provider == "elevenlabs" else GEMINI_VOICES
-
-        for voice in voices.values():
+        for voice in GEMINI_VOICES.values():
             if voice.gender == gender:
                 return voice
 
         # Fallback to neutral if no match
-        for voice in voices.values():
+        for voice in GEMINI_VOICES.values():
             if voice.gender == Gender.NEUTRAL:
                 return voice
 
@@ -283,15 +156,12 @@ class VoiceSelector:
 
     @staticmethod
     def get_voice_by_characteristics(
-        provider: str,
         gender: Optional[Gender] = None,
         age_group: Optional[AgeGroup] = None,
         style_tags: Optional[List[str]] = None
     ) -> Optional[VoiceProfile]:
         """Get voice matching characteristics"""
-        voices = ELEVENLABS_VOICES if provider == "elevenlabs" else GEMINI_VOICES
-
-        candidates = list(voices.values())
+        candidates = list(GEMINI_VOICES.values())
 
         # Filter by gender
         if gender:
@@ -317,40 +187,24 @@ class VoiceSelector:
         return candidates[0] if candidates else None
 
     @staticmethod
-    def get_equivalent_voice(voice_id: str, target_provider: str) -> Optional[str]:
-        """Get equivalent voice in target provider"""
-        if voice_id in VOICE_EQUIVALENTS:
-            equivalent = VOICE_EQUIVALENTS[voice_id]
-
-            # Check if equivalent is for target provider
-            target_voices = ELEVENLABS_VOICES if target_provider == "elevenlabs" else GEMINI_VOICES
-            for voice in target_voices.values():
-                if voice.id == equivalent:
-                    return equivalent
-
-        return None
-
-    @staticmethod
-    def get_default_voices(provider: str) -> Dict[str, VoiceProfile]:
-        """Get default male and female voices for a provider"""
-        voices = ELEVENLABS_VOICES if provider == "elevenlabs" else GEMINI_VOICES
-
+    def get_default_voices() -> Dict[str, VoiceProfile]:
+        """Get default male and female voices"""
         defaults = {}
 
         # Find default male voice
-        for key, voice in voices.items():
+        for key, voice in GEMINI_VOICES.items():
             if voice.gender == Gender.MALE and voice.age_group == AgeGroup.MIDDLE:
                 defaults['male'] = voice
                 break
 
         # Find default female voice
-        for key, voice in voices.items():
+        for key, voice in GEMINI_VOICES.items():
             if voice.gender == Gender.FEMALE and voice.age_group == AgeGroup.MIDDLE:
                 defaults['female'] = voice
                 break
 
         # Add neutral as fallback
-        for key, voice in voices.items():
+        for key, voice in GEMINI_VOICES.items():
             if voice.gender == Gender.NEUTRAL:
                 defaults['neutral'] = voice
                 break

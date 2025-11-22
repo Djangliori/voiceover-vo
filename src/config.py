@@ -17,7 +17,6 @@ class Config:
     # API Keys
     VOICEGAIN_API_KEY = os.getenv('VOICEGAIN_API_KEY')
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')  # For Georgian translation only
-    ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
     RAPIDAPI_KEY = os.getenv('RAPIDAPI_KEY')
 
     # Flask Configuration
@@ -38,8 +37,8 @@ class Config:
     MAX_SPEAKERS = int(os.getenv('MAX_SPEAKERS', 10))  # Maximum speakers to detect
     SPEAKER_MERGE_PAUSE = float(os.getenv('SPEAKER_MERGE_PAUSE', 1.5))  # Seconds between segments to merge
 
-    # TTS Settings
-    TTS_PROVIDER = os.getenv('TTS_PROVIDER', 'gemini')  # 'gemini' or 'elevenlabs'
+    # TTS Settings (Gemini only)
+    TTS_PROVIDER = 'gemini'  # Gemini is the only supported provider
 
     # Directories
     OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'output')
@@ -65,7 +64,6 @@ class Config:
 
     # API Timeouts (in seconds)
     OPENAI_TIMEOUT = int(os.getenv('OPENAI_TIMEOUT', 60))
-    ELEVENLABS_TIMEOUT = int(os.getenv('ELEVENLABS_TIMEOUT', 30))
     RAPIDAPI_TIMEOUT = int(os.getenv('RAPIDAPI_TIMEOUT', 30))
     DOWNLOAD_TIMEOUT = int(os.getenv('DOWNLOAD_TIMEOUT', 60))
     VOICEGAIN_TIMEOUT = int(os.getenv('VOICEGAIN_TIMEOUT', 300))  # 5 minutes for long transcriptions
@@ -85,11 +83,10 @@ class Config:
         if not cls.OPENAI_API_KEY:
             errors.append("OPENAI_API_KEY is required for Georgian translation")
 
-        # TTS provider API key (at least one required)
-        if cls.TTS_PROVIDER == 'elevenlabs' and not cls.ELEVENLABS_API_KEY:
-            errors.append("ELEVENLABS_API_KEY is required when using ElevenLabs TTS")
-        elif cls.TTS_PROVIDER == 'gemini' and not os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
-            errors.append("GOOGLE_APPLICATION_CREDENTIALS required for Gemini TTS")
+        # TTS provider - Gemini requires Google credentials
+        google_creds = os.getenv('GOOGLE_APPLICATION_CREDENTIALS') or os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+        if not google_creds:
+            errors.append("GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_APPLICATION_CREDENTIALS_JSON required for Gemini TTS")
 
         # Validate numeric ranges
         if not 0 <= cls.ORIGINAL_AUDIO_VOLUME <= 1:

@@ -39,11 +39,14 @@
 Go to your service → Variables and add:
 
 ```
-# ElevenLabs API
-ELEVENLABS_API_KEY=[YOUR_ELEVENLABS_API_KEY]
+# Voicegain API (for transcription)
+VOICEGAIN_API_KEY=[YOUR_VOICEGAIN_JWT_TOKEN]
 
-# OpenAI API
+# OpenAI API (for translation)
 OPENAI_API_KEY=[YOUR_OPENAI_API_KEY]
+
+# Google Cloud TTS (Gemini) - Required for voiceover
+GOOGLE_APPLICATION_CREDENTIALS_JSON=[YOUR_JSON_CREDENTIALS]
 
 # App Configuration
 FLASK_PORT=5001
@@ -174,7 +177,7 @@ Once deployed:
 - Ensure proxy (orange cloud) is enabled
 
 ### Video processing fails
-- Check API keys (ElevenLabs, OpenAI) are valid
+- Check API keys (Voicegain, OpenAI, Google Cloud) are valid
 - Check Railway has enough resources
 - Look for errors in Railway logs
 
@@ -187,7 +190,8 @@ Once deployed:
 - **Railway**: $5-20 (Hobby plan, depends on usage)
 - **PostgreSQL**: Included in Railway plan
 - **Cloudflare R2**: ~$0-5 (10GB free, then $0.015/GB)
-- **ElevenLabs**: Based on your usage
+- **Voicegain**: Based on usage (~$0.004/min)
+- **Google Cloud TTS**: Based on usage
 - **OpenAI GPT-4**: Based on your usage
 
 **Total**: ~$10-30/month (excluding API usage costs)
