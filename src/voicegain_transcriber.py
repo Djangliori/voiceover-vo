@@ -105,7 +105,7 @@ class VoicegainTranscriber:
                 "sessions": [{
                     "asyncMode": "OFF-LINE",
                     "audioChannelSelector": "mix",
-                    "vadMode": "strict",
+                    "vadMode": "normal",  # Valid values: normal, disabled, total_music_reject
                     "content": {
                         "incremental": ["words"],
                         "full": ["words", "transcript"]
