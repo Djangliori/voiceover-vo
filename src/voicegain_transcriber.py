@@ -385,7 +385,11 @@ class VoicegainTranscriber:
     def _poll_and_parse(self, transcription_session_id: str, progress_callback: Optional[callable] = None,
                         console_session_id: str = None) -> Tuple[List[Dict], List[Dict]]:
         """
-        Poll for async results and parse them
+        Poll for async results and parse them.
+
+        Voicegain async API requires two-phase polling:
+        1. Poll without ?full=true to check progress
+        2. When session.final=true, poll with ?full=true to get transcript
         """
         poll_url = f"{self.base_url}/asr/transcribe/{transcription_session_id}"
         max_attempts = 120
@@ -394,6 +398,7 @@ class VoicegainTranscriber:
             try:
                 time.sleep(2 if i > 0 else 0)  # Wait before polling
 
+                # First poll for progress (without ?full=true)
                 response = requests.get(poll_url, headers=self.headers)
 
                 if response.status_code == 404:
@@ -409,22 +414,33 @@ class VoicegainTranscriber:
 
                 result = response.json()
 
-                # Check if done
-                if result.get("result", {}).get("final", False):
-                    logger.info(f"Transcription complete after {i} polls")
-                    logger.info(f"Result structure: {json.dumps(result, indent=2)[:1000]}")
+                # Check if done - NOTE: 'final' is under 'session', not 'result'!
+                session_final = result.get("session", {}).get("final", False)
+
+                if session_final:
+                    logger.info(f"Session marked as final after {i} polls, fetching full transcript...")
+
+                    # NOW fetch with ?full=true to get the actual transcript
+                    full_response = requests.get(f"{poll_url}?full=true", headers=self.headers)
+
+                    if full_response.status_code != 200:
+                        logger.error(f"Failed to fetch full transcript: {full_response.status_code}")
+                        return [], []
+
+                    full_result = full_response.json()
+                    logger.info(f"Full result keys: {full_result.keys()}")
+                    logger.info(f"Full result structure: {json.dumps(full_result, indent=2)[:2000]}")
 
                     if console_session_id:
                         console.log(f"Transcription complete after {i} polls", level="SUCCESS", session_id=console_session_id)
 
-                        # Log result preview
-                        if "result" in result and "alternatives" in result["result"]:
-                            alts = result["result"]["alternatives"]
-                            if alts and "utterance" in alts[0]:
-                                preview = alts[0]["utterance"][:200]
-                                console.log(f"Transcript preview: {preview}...", session_id=console_session_id)
+                        # Log transcript preview
+                        transcript = full_result.get("result", {}).get("transcript", "")
+                        if transcript:
+                            preview = transcript[:200]
+                            console.log(f"Transcript preview: {preview}...", session_id=console_session_id)
 
-                    return self._parse_async_results(result, console_session_id)
+                    return self._parse_async_results(full_result, console_session_id)
 
                 if progress_callback and i % 5 == 0:
                     progress_callback(f"Processing... ({i}/{max_attempts})")
@@ -511,75 +527,123 @@ class VoicegainTranscriber:
         return segments, list(speakers.values())
 
     def _parse_async_results(self, result: Dict, console_session_id: str = None) -> Tuple[List[Dict], List[Dict]]:
-        """Parse async transcription results"""
+        """Parse async transcription results.
+
+        Voicegain async API returns data in result.result with:
+        - 'words': array of word objects with timing
+        - 'transcript': plain text transcript
+        NOT in 'alternatives' (which is for sync API)
+        """
         segments = []
         speakers = {}
 
         try:
             # Log full result structure for debugging
             logger.info(f"Full result keys: {result.keys() if result else 'None'}")
-            if "result" in result:
-                logger.info(f"result.result keys: {result['result'].keys() if result['result'] else 'None'}")
-                logger.info(f"result.result content: {json.dumps(result['result'], indent=2)[:1500]}")
 
-            # Try to get alternatives from different possible locations
-            alternatives = []
+            inner_result = result.get("result", {})
+            if inner_result:
+                logger.info(f"result.result keys: {inner_result.keys()}")
 
-            # Standard location: result.result.alternatives
-            if "result" in result:
-                alternatives = result["result"].get("alternatives", [])
-                logger.info(f"Found {len(alternatives)} alternatives in result.result")
+            # For async API, words and transcript are directly under result.result
+            words = inner_result.get("words", [])
+            transcript = inner_result.get("transcript", "")
 
-            # Alternative location: result.alternatives (some async responses)
-            if not alternatives and "alternatives" in result:
-                alternatives = result.get("alternatives", [])
-                logger.info(f"Found {len(alternatives)} alternatives in result root")
+            logger.info(f"Found {len(words)} words in result.result")
+            logger.info(f"Transcript length: {len(transcript)} chars")
 
-            # Process alternatives if found
-            if alternatives:
-                logger.info(f"Processing {len(alternatives)} alternatives")
-                logger.info(f"First alternative keys: {alternatives[0].keys() if alternatives[0] else 'None'}")
+            if words:
+                # Log first few words for debugging
+                logger.info(f"First word sample: {words[0] if words else 'None'}")
 
-                # Get words if available
-                words = alternatives[0].get("words", [])
-                logger.info(f"Found {len(words)} words")
+                # Group words into segments based on gaps/pauses
+                current_segment = None
+                for word_data in words:
+                    # Word structure: {"word": "text", "start": ms, "end": ms, "confidence": float}
+                    text = word_data.get("word", word_data.get("text", ""))
+                    start = word_data.get("start", 0) / 1000.0  # Convert ms to seconds
+                    end = word_data.get("end", start * 1000 + 500) / 1000.0
 
-                if words:
-                    # Group words into segments
-                    current_segment = None
-                    for word in words:
-                        text = word.get("word", "")
-                        start = word.get("start", 0) / 1000.0
-                        end = word.get("end", start + 0.5) / 1000.0
+                    # Start new segment if gap > 1 second or first word
+                    if current_segment is None or start - current_segment['end'] > 1.0:
+                        if current_segment:
+                            segments.append(current_segment)
+                        current_segment = {
+                            'text': text,
+                            'start': start,
+                            'end': end,
+                            'speaker': 'speaker_0'
+                        }
+                    else:
+                        current_segment['text'] += ' ' + text
+                        current_segment['end'] = end
 
-                        if current_segment is None or start - current_segment['end'] > 1.0:
-                            if current_segment:
-                                segments.append(current_segment)
-                            current_segment = {
-                                'text': text,
-                                'start': start,
-                                'end': end,
-                                'speaker': 'speaker_0'
-                            }
-                        else:
-                            current_segment['text'] += ' ' + text
-                            current_segment['end'] = end
+                if current_segment:
+                    segments.append(current_segment)
 
-                    if current_segment:
-                        segments.append(current_segment)
-                else:
-                    # Just get the full transcript
-                    utterance = alternatives[0].get("utterance", "")
-                    logger.info(f"No words, checking utterance: '{utterance[:200] if utterance else 'None'}'...")
-                    if utterance:
+                logger.info(f"Created {len(segments)} segments from {len(words)} words")
+
+            elif transcript:
+                # No word-level data, but we have transcript text
+                # Split into sentences for segments
+                logger.info(f"Using plain transcript (no words): {transcript[:200]}...")
+
+                sentences = transcript.replace('!', '.').replace('?', '.').split('.')
+                time_per_sentence = 3.0
+                current_time = 0
+
+                for sentence in sentences:
+                    sentence = sentence.strip()
+                    if sentence:
                         segments.append({
-                            'text': utterance,
-                            'start': 0,
-                            'end': 10,
+                            'text': sentence,
+                            'start': current_time,
+                            'end': current_time + time_per_sentence,
                             'speaker': 'speaker_0'
                         })
+                        current_time += time_per_sentence
+
+                logger.info(f"Created {len(segments)} segments from transcript text")
+
             else:
-                logger.warning("No alternatives found in result!")
+                # Try alternatives as fallback (sync API structure)
+                alternatives = inner_result.get("alternatives", [])
+                if alternatives:
+                    logger.info(f"Using alternatives fallback: {len(alternatives)} alternatives")
+                    words = alternatives[0].get("words", [])
+                    if words:
+                        current_segment = None
+                        for word in words:
+                            text = word.get("word", "")
+                            start = word.get("start", 0) / 1000.0
+                            end = word.get("end", start + 0.5) / 1000.0
+
+                            if current_segment is None or start - current_segment['end'] > 1.0:
+                                if current_segment:
+                                    segments.append(current_segment)
+                                current_segment = {
+                                    'text': text,
+                                    'start': start,
+                                    'end': end,
+                                    'speaker': 'speaker_0'
+                                }
+                            else:
+                                current_segment['text'] += ' ' + text
+                                current_segment['end'] = end
+
+                        if current_segment:
+                            segments.append(current_segment)
+                    else:
+                        utterance = alternatives[0].get("utterance", "")
+                        if utterance:
+                            segments.append({
+                                'text': utterance,
+                                'start': 0,
+                                'end': 10,
+                                'speaker': 'speaker_0'
+                            })
+                else:
+                    logger.warning("No words, transcript, or alternatives found in result!")
 
             # Create a default speaker
             if segments:
