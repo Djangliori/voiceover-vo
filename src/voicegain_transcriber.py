@@ -475,12 +475,14 @@ class VoicegainTranscriber:
 
             segments = []
             speakers = {}
+            channel_to_speaker = {}  # Map channel index to speaker key
 
             # Extract channel info (speaker, gender, age)
             channels = data.get("channels", [])
             for i, channel in enumerate(channels):
                 speaker_id = channel.get("spk", str(i))
                 speaker_key = f"speaker_{speaker_id}"
+                channel_id = channel.get("channelId", i)
 
                 gender = channel.get("gender", "unknown")
                 age = channel.get("age", "unknown")
@@ -492,7 +494,13 @@ class VoicegainTranscriber:
                     "age": age.lower() if age else "unknown"
                 }
 
-                logger.info(f"Channel {i}: speaker={speaker_id}, gender={gender}, age={age}")
+                # Map both channel index and channelId to speaker
+                channel_to_speaker[i] = speaker_key
+                channel_to_speaker[channel_id] = speaker_key
+
+                logger.info(f"Channel {i} (channelId={channel_id}): speaker={speaker_id}, gender={gender}, age={age}")
+
+            logger.info(f"Channel to speaker mapping: {channel_to_speaker}")
 
             # Extract transcript with timing and speaker info
             multi_channel_words = data.get("multiChannelWords", [])
@@ -522,10 +530,11 @@ class VoicegainTranscriber:
                         end_time = word_end
 
                 if text_parts:
-                    # Determine speaker from channel
-                    speaker_key = f"speaker_{channel_idx}"
-                    if speaker_key not in speakers:
+                    # Determine speaker from channel using our mapping
+                    speaker_key = channel_to_speaker.get(channel_idx)
+                    if not speaker_key:
                         speaker_key = list(speakers.keys())[0] if speakers else "speaker_0"
+                        logger.warning(f"No speaker mapping for channel {channel_idx}, using {speaker_key}")
 
                     segments.append({
                         "text": " ".join(text_parts),
