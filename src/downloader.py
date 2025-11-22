@@ -470,39 +470,6 @@ class VideoDownloader:
         finally:
             self._video_download_complete.set()
 
-    def _convert_audio_to_wav(self, source_path, output_path):
-        """Convert audio file to WAV format for processing"""
-        import subprocess
-        import shutil
-
-        ffmpeg_path = self._get_ffmpeg_path()
-
-        cmd = [
-            ffmpeg_path,
-            '-i', str(source_path),
-            '-vn',
-            '-acodec', 'pcm_s16le',
-            '-ar', '16000',  # 16kHz for speech recognition
-            '-ac', '1',  # Mono
-            '-y',
-            str(output_path)
-        ]
-
-        logger.info(f"Converting audio: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
-
-        if result.returncode != 0:
-            logger.error(f"Audio conversion failed: {result.stderr}")
-            raise Exception(f"Failed to convert audio: {result.stderr}")
-
-        logger.info(f"Audio converted to WAV: {output_path}")
-
-        # Clean up source file
-        try:
-            Path(source_path).unlink()
-        except Exception:
-            pass
-
     def _get_ffmpeg_path(self):
         """Get ffmpeg path"""
         import shutil

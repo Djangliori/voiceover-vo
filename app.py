@@ -453,9 +453,13 @@ def process_video():
                         'error': f"Too many videos processing. Maximum {app.config['MAX_CONCURRENT_JOBS']} allowed."
                     }), 429
 
-        # Create database entry
+        # Create database entry or reset failed video
         if not video:
             video = db.create_video(video_id, "Processing...", youtube_url)
+        elif video.processing_status == 'failed':
+            # Reset failed video to retry
+            db.update_video_status(video_id, 'processing')
+            db.update_video_progress(video_id, "Retrying...", 0)
 
         # Start background processing (Celery or threading)
         # Pass user_id to charge minutes after completion
