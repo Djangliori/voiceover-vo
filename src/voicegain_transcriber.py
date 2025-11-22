@@ -231,16 +231,8 @@ class VoicegainTranscriber:
                 audio_data = audio_file.read()
                 audio_base64 = base64.b64encode(audio_data).decode('utf-8')
 
-            # Determine audio format/MIME type
+            # Determine audio format
             audio_format = audio_path.split('.')[-1].lower()
-            mime_type = {
-                'mp3': 'audio/mpeg',
-                'm4a': 'audio/mp4',
-                'mp4': 'audio/mp4',
-                'wav': 'audio/wav',
-                'aac': 'audio/aac',
-                'ogg': 'audio/ogg'
-            }.get(audio_format, 'audio/mpeg')
 
             # Request structure based on Voicegain documentation
             # OFF-LINE mode for offline/batch transcription
@@ -260,8 +252,7 @@ class VoicegainTranscriber:
                 "audio": {
                     "source": {
                         "inline": {
-                            "data": audio_base64,
-                            "mimeType": mime_type  # Specify MIME type
+                            "data": audio_base64
                         }
                     }
                 },
@@ -278,12 +269,11 @@ class VoicegainTranscriber:
 
             # Send async request to correct endpoint
             logger.info(f"Sending async request to {self.base_url}/asr/transcribe/async")
-            logger.info(f"Audio format: {audio_format}, MIME: {mime_type}")
+            logger.info(f"Audio format: {audio_format}")
             logger.info(f"Audio size: {len(audio_data)} bytes, Base64: {len(audio_base64)} bytes")
 
             # Log to console
             console.log(f"Sending {audio_format} audio ({len(audio_data)} bytes) to Voicegain", session_id=session_id)
-            console.log(f"MIME type: {mime_type}", level="DEBUG", session_id=session_id)
 
             response = requests.post(
                 f"{self.base_url}/asr/transcribe/async",
