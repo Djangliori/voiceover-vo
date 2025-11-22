@@ -160,22 +160,45 @@ class GeminiTextToSpeech:
             Updated segment dict with 'audio_path' and 'audio_duration'
         """
         text = segment['translated_text']
+        max_retries = 3
+        last_error = None
 
-        try:
-            # Synthesize speech using Gemini TTS
-            audio_content = self._synthesize_speech(text)
-        except Exception as e:
-            error_str = str(e).lower()
-            # Check if this is a content blocked error
-            if 'sensitive' in error_str or 'harmful' in error_str or 'content' in error_str:
-                logger.warning(f"Segment {index} blocked by content filter, generating silence: {text[:50]}...")
-                # Generate silence for the expected duration of this segment
-                duration = segment.get('end', 0) - segment.get('start', 0)
-                if duration <= 0:
-                    duration = 2.0  # Default 2 seconds
-                audio_content = self._generate_silence(duration)
-            else:
-                # Re-raise non-content-filter errors
+        for attempt in range(max_retries):
+            try:
+                # Synthesize speech using Gemini TTS
+                audio_content = self._synthesize_speech(text)
+                break  # Success
+            except Exception as e:
+                error_str = str(e).lower()
+                last_error = e
+
+                # Check if this is a content blocked error - don't retry, use silence
+                if 'sensitive' in error_str or 'harmful' in error_str or 'content' in error_str:
+                    logger.warning(f"Segment {index} blocked by content filter, generating silence: {text[:50]}...")
+                    duration = segment.get('end', 0) - segment.get('start', 0)
+                    if duration <= 0:
+                        duration = 2.0
+                    audio_content = self._generate_silence(duration)
+                    break
+
+                # Check if this is a transient 500 error - retry
+                if '500' in error_str or 'unable to generate' in error_str or 'try again' in error_str:
+                    if attempt < max_retries - 1:
+                        import time
+                        wait_time = (attempt + 1) * 2  # 2, 4, 6 seconds
+                        logger.warning(f"Segment {index} got 500 error, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        # All retries failed, generate silence instead of failing
+                        logger.warning(f"Segment {index} failed after {max_retries} retries, generating silence: {text[:50]}...")
+                        duration = segment.get('end', 0) - segment.get('start', 0)
+                        if duration <= 0:
+                            duration = 2.0
+                        audio_content = self._generate_silence(duration)
+                        break
+
+                # Other errors - re-raise
                 raise
 
         # Save to WAV file (Gemini outputs LINEAR16 which is WAV-compatible)
