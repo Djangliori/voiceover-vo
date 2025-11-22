@@ -68,7 +68,7 @@ class Config:
     ELEVENLABS_TIMEOUT = int(os.getenv('ELEVENLABS_TIMEOUT', 30))
     RAPIDAPI_TIMEOUT = int(os.getenv('RAPIDAPI_TIMEOUT', 30))
     DOWNLOAD_TIMEOUT = int(os.getenv('DOWNLOAD_TIMEOUT', 60))
-    ASSEMBLYAI_TIMEOUT = int(os.getenv('ASSEMBLYAI_TIMEOUT', 300))  # 5 minutes for long transcriptions
+    VOICEGAIN_TIMEOUT = int(os.getenv('VOICEGAIN_TIMEOUT', 300))  # 5 minutes for long transcriptions
 
     # Rate Limiting
     API_RATE_LIMIT = int(os.getenv('API_RATE_LIMIT', 100))  # requests per minute
