@@ -183,7 +183,16 @@ class VoiceManager:
             logger.warning("No voice assignments, using default voice")
             return segments
 
+        # Debug logging
+        logger.info(f"Voice assignments keys: {list(assignments.keys())}")
+        if segments:
+            sample_speakers = [seg.get('speaker') for seg in segments[:5]]
+            logger.info(f"Sample segment speakers: {sample_speakers}")
+
         prepared = []
+        matched_count = 0
+        unmatched_count = 0
+
         for segment in segments:
             seg = segment.copy()
 
@@ -194,6 +203,7 @@ class VoiceManager:
                 seg['voice_id'] = voice.id
                 seg['voice_name'] = voice.name
                 seg['voice_provider'] = voice.provider
+                matched_count += 1
 
                 logger.debug(f"Segment assigned voice: {voice.name} for speaker {speaker_id}")
             else:
@@ -202,9 +212,14 @@ class VoiceManager:
                 seg['voice_id'] = default_voice.id
                 seg['voice_name'] = default_voice.name
                 seg['voice_provider'] = default_voice.provider
+                unmatched_count += 1
+
+                if speaker_id:
+                    logger.warning(f"No voice assignment for speaker '{speaker_id}', using default {default_voice.name}")
 
             prepared.append(seg)
 
+        logger.info(f"Voice assignment results: {matched_count} matched, {unmatched_count} unmatched")
         return prepared
 
     def group_segments_by_voice(

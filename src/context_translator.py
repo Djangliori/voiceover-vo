@@ -265,16 +265,8 @@ class ContextAwareTranslator:
 
     def _translate_text(self, english_text: str) -> str:
         """
-        Simple direct translation from English to Georgian.
-        No complex context - just translate the text.
+        Translate English to Georgian with natural, conversational style.
         """
-        prompt = f"""Translate this English text to Georgian.
-Return ONLY the Georgian translation, nothing else.
-
-English: {english_text}
-
-Georgian:"""
-
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -283,11 +275,25 @@ Georgian:"""
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are a translator. Translate English to Georgian. Return only the translation."
+                            "content": """You are an expert English to Georgian translator specializing in natural, spoken Georgian.
+
+Your translations must be:
+1. NATURAL and FLUENT Georgian - NOT word-for-word mechanical translations
+2. Adjusted to Georgian grammar, word order, and sentence structure
+3. Using natural Georgian expressions and idioms where appropriate
+4. Suitable for voiceover/dubbing (spoken language, conversational tone)
+5. Culturally appropriate for Georgian speakers
+6. Preserving the original meaning, emotion, and tone
+
+IMPORTANT: Georgian has different sentence structure than English. Rearrange words naturally.
+Return ONLY the Georgian translation, nothing else."""
                         },
-                        {"role": "user", "content": prompt}
+                        {
+                            "role": "user",
+                            "content": f"Translate to natural Georgian:\n\n{english_text}"
+                        }
                     ],
-                    temperature=0.3,
+                    temperature=0.4,  # Slightly higher for more natural variation
                     max_tokens=500,
                     timeout=30
                 )
