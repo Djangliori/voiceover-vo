@@ -4,14 +4,24 @@ Task queue for background video processing
 """
 
 import os
+import sys
 from celery import Celery
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Redis configuration
-# Railway uses REDIS_URL or REDIS_PRIVATE_URL
-REDIS_URL = os.getenv('REDIS_URL') or os.getenv('REDIS_PRIVATE_URL') or 'redis://localhost:6379/0'
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import Redis configuration helper
+from src.redis_config import get_redis_url
+
+# Redis configuration - handles Railway's various formats
+REDIS_URL = get_redis_url()
+if not REDIS_URL:
+    print("WARNING: No Redis configuration found, using fallback")
+    REDIS_URL = 'redis://localhost:6379/0'
+
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', REDIS_URL)
 CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', REDIS_URL)
 

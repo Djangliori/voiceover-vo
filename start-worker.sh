@@ -9,8 +9,16 @@ export PATH=/nix/var/nix/profiles/default/bin:/usr/bin:$PATH
 # Set default TTS_PROVIDER if not set (fixes Config import error)
 export TTS_PROVIDER="${TTS_PROVIDER:-elevenlabs}"
 
-# Check if Redis is configured
-if [ -z "$REDIS_URL" ] && [ -z "$REDIS_PRIVATE_URL" ]; then
+# Debug: Print Redis-related environment variables
+echo "=== Redis Environment Variables ==="
+echo "REDIS_URL: ${REDIS_URL:+[SET]}"
+echo "REDIS_PRIVATE_URL: ${REDIS_PRIVATE_URL:+[SET]}"
+echo "REDISHOST: ${REDISHOST:+[SET]}"
+echo "REDIS_HOST: ${REDIS_HOST:+[SET]}"
+echo "=================================="
+
+# Check if ANY Redis configuration exists
+if [ -z "$REDIS_URL" ] && [ -z "$REDIS_PRIVATE_URL" ] && [ -z "$REDISHOST" ] && [ -z "$REDIS_HOST" ]; then
     echo "================================================================"
     echo "Redis not configured - Celery worker not needed"
     echo "The main app is using threading mode for video processing"

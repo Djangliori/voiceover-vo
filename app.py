@@ -45,11 +45,12 @@ from src.validators import (
 # Try to import Celery tasks and check if Redis is available
 try:
     from src.tasks import process_video_task
+    from src.redis_config import get_redis_url, test_redis_connection
     import redis
     import time
 
-    # Try to connect to Redis with retries (Railway needs time for internal DNS)
-    redis_url = os.getenv('REDIS_URL') or os.getenv('REDIS_PRIVATE_URL') or 'redis://localhost:6379/0'
+    # Get Redis URL from environment (handles Railway's various formats)
+    redis_url = get_redis_url()
     max_retries = 3
     retry_delay = 2
 
