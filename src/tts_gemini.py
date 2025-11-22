@@ -39,8 +39,9 @@ class GeminiTextToSpeech:
         self.language_code = "ka-GE"  # Georgian (Georgia)
         self.model_name = os.getenv('GEMINI_TTS_MODEL', 'gemini-2.5-pro-tts')
 
-        # Voice selection - Achernar works well for Georgian based on user testing
-        self.voice_name = os.getenv('GEMINI_TTS_VOICE', 'Achernar')
+        # Voice selection - Charon is a good default male voice for Georgian
+        # (Most YouTube content has male speakers, so male default is safer)
+        self.voice_name = os.getenv('GEMINI_TTS_VOICE', 'Charon')
 
         # Default prompt for consistent tone
         self.default_prompt = os.getenv(

@@ -775,7 +775,7 @@ class VoicegainTranscriber:
                     logger.info(f"Segment {i}: text='{seg.get('text', '')[:80]}', start={seg.get('start')}, end={seg.get('end')}")
 
             # Extract speaker analytics if available in the JSON transcript
-            speaker_analytics = transcript_data.get("speakerAnalytics") or {}
+            speaker_analytics = result.get("speakerAnalytics") or {}
             logger.info(f"Speaker analytics from JSON: {json.dumps(speaker_analytics, indent=2) if speaker_analytics else 'None'}")
 
             # Build speakers dict from unique speaker IDs found in segments
