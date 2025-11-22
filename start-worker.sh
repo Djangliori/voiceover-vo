@@ -9,6 +9,22 @@ export PATH=/nix/var/nix/profiles/default/bin:/usr/bin:$PATH
 # Set default TTS_PROVIDER if not set (fixes Config import error)
 export TTS_PROVIDER="${TTS_PROVIDER:-elevenlabs}"
 
+# Check if Redis is configured
+if [ -z "$REDIS_URL" ] && [ -z "$REDIS_PRIVATE_URL" ]; then
+    echo "================================================================"
+    echo "Redis not configured - Celery worker not needed"
+    echo "The main app is using threading mode for video processing"
+    echo "This is perfectly fine for moderate traffic"
+    echo "================================================================"
+
+    # Just keep the process alive
+    while true; do
+        sleep 3600
+        echo "Worker placeholder - $(date) - Redis not configured"
+    done
+    exit 0
+fi
+
 # Check if running as root and create user if needed
 if [ "$EUID" -eq 0 ]; then
     echo "Running as root, creating non-root user..."
