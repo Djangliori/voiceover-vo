@@ -350,8 +350,11 @@ def process_video_task(self, video_id, youtube_url, user_id=None):
         error_msg = str(exc)
         logger.error("task_failed", video_id=video_id, error=error_msg, exc_info=True)
 
+        # Truncate error message for database (in case column limit)
+        error_msg_truncated = error_msg[:900] + '...' if len(error_msg) > 900 else error_msg
+
         # Update database
-        self.db.update_video_status(video_id, 'failed', error_message=error_msg)
+        self.db.update_video_status(video_id, 'failed', error_message=error_msg_truncated)
 
         # Smart retry logic: Only retry on transient errors
         # Do NOT retry on permanent failures that waste API quota

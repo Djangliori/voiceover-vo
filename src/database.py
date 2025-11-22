@@ -29,7 +29,7 @@ class Video(Base):
     processing_status = Column(String(50), default='processing')  # processing, completed, failed
     progress = Column(Integer, default=0)  # Progress percentage (0-100)
     status_message = Column(String(500))  # Current processing step message
-    error_message = Column(String(1000))
+    error_message = Column(Text)  # Use Text for long error messages
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
     view_count = Column(Integer, default=0)

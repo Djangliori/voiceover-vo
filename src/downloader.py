@@ -296,13 +296,17 @@ class VideoDownloader:
 
     def _find_best_audio_stream(self, formats):
         """Find best audio-only stream (no video)"""
-        audio_streams = [f for f in formats if f.get('hasAudio') and not f.get('hasVideo', True)]
+        # Look for streams that have audio but explicitly NO video (hasVideo=False)
+        audio_streams = [f for f in formats if f.get('hasAudio') == True and f.get('hasVideo') == False]
 
         if not audio_streams:
-            # Also check for formats explicitly marked as audio
+            # Also check for formats explicitly marked as audio by quality name or extension
             audio_streams = [f for f in formats
-                           if 'audio' in str(f.get('quality', '')).lower()
-                           or f.get('extension') in ('m4a', 'webm', 'mp3')]
+                           if ('audio' in str(f.get('quality', '')).lower()
+                               or f.get('extension') in ('m4a', 'mp3', 'aac', 'opus'))
+                           and '720' not in str(f.get('quality', ''))
+                           and '1080' not in str(f.get('quality', ''))
+                           and '480' not in str(f.get('quality', ''))]
 
         if not audio_streams:
             logger.info("No audio-only stream found")
@@ -328,7 +332,8 @@ class VideoDownloader:
 
     def _find_best_video_stream(self, formats):
         """Find best video-only stream (no audio)"""
-        video_streams = [f for f in formats if f.get('hasVideo', True) and not f.get('hasAudio', True)]
+        # Look for streams that have video but explicitly NO audio (hasAudio=False)
+        video_streams = [f for f in formats if f.get('hasVideo') == True and f.get('hasAudio') == False]
 
         if not video_streams:
             logger.info("No video-only stream found")
