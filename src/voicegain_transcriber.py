@@ -351,14 +351,23 @@ class VoicegainTranscriber:
                 return self._basic_transcribe(audio_id, progress_callback, session_id)
 
             result = response.json()
+            logger.info(f"SA session response keys: {result.keys()}")
+            logger.info(f"SA session response: {json.dumps(result, indent=2)[:2000]}")
+
             sa_session_id = result.get("saSessionId")
             poll_url = result.get("poll", {}).get("url")
+
+            # If no poll URL in response, construct it from session ID
+            if not poll_url and sa_session_id:
+                poll_url = f"{self.base_url}/sa/{sa_session_id}"
+                logger.info(f"Constructed poll URL from session ID: {poll_url}")
 
             if not sa_session_id:
                 logger.error(f"No SA session ID in response: {result}")
                 return self._basic_transcribe(audio_id, progress_callback, session_id)
 
             logger.info(f"SA session started: {sa_session_id}")
+            logger.info(f"Poll URL: {poll_url}")
 
             # Poll for completion
             return self._poll_sa_results(sa_session_id, poll_url, progress_callback, session_id)
@@ -380,6 +389,13 @@ class VoicegainTranscriber:
         """Poll for Speech Analytics results"""
         max_attempts = 120
 
+        # Construct fallback poll URL if needed
+        if not poll_url or 'None' in str(poll_url):
+            poll_url = f"{self.base_url}/sa/{sa_session_id}"
+            logger.info(f"Constructed poll URL: {poll_url}")
+
+        logger.info(f"SA polling URL: {poll_url}")
+
         for i in range(max_attempts):
             try:
                 time.sleep(5 if i > 0 else 1)
@@ -387,28 +403,48 @@ class VoicegainTranscriber:
                 response = requests.get(poll_url, headers=self.headers)
 
                 if response.status_code != 200:
-                    logger.debug(f"Poll {i}: status {response.status_code}")
+                    logger.debug(f"Poll {i}: HTTP {response.status_code}")
+                    # Try alternate poll URL format
+                    if i == 0 and response.status_code == 404:
+                        alt_poll_url = f"{self.base_url}/sa/{sa_session_id}"
+                        logger.info(f"Trying alternate poll URL: {alt_poll_url}")
+                        poll_url = alt_poll_url
                     continue
 
                 result = response.json()
-                status = result.get("status", "")
+                status = result.get("status", "").lower()  # Case-insensitive
+
+                # Log full response every 10 polls for debugging
+                if i % 10 == 0:
+                    logger.info(f"Poll {i} response keys: {result.keys()}")
+                    logger.info(f"Poll {i} status: '{status}'")
 
                 if progress_callback and i % 5 == 0:
                     progress_callback(f"Processing... ({i}/{max_attempts})")
 
-                if status == "done" or status == "completed":
-                    logger.info(f"SA session completed after {i} polls")
+                # Check for completion (multiple possible values)
+                if status in ["done", "completed", "complete", "success", "finished"]:
+                    logger.info(f"SA session completed after {i} polls (status: {status})")
                     return self._fetch_sa_data(sa_session_id, session_id)
 
-                if status == "error" or status == "failed":
-                    logger.error(f"SA session failed: {result}")
+                # Check for failure
+                if status in ["error", "failed", "failure", "cancelled"]:
+                    error_msg = result.get("message", result.get("error", "Unknown error"))
+                    logger.error(f"SA session failed: status={status}, error={error_msg}")
+                    logger.error(f"Full response: {json.dumps(result, indent=2)[:2000]}")
                     return [], []
 
             except Exception as e:
-                logger.warning(f"Poll error: {e}")
+                logger.warning(f"Poll {i} error: {e}")
                 continue
 
-        logger.error("SA session timed out")
+        logger.error(f"SA session timed out after {max_attempts} attempts")
+        # Try to fetch data anyway in case status check was wrong
+        logger.info("Attempting to fetch SA data despite timeout...")
+        segments, speakers = self._fetch_sa_data(sa_session_id, session_id)
+        if segments:
+            logger.info(f"Found {len(segments)} segments despite timeout")
+            return segments, speakers
         return [], []
 
     def _fetch_sa_data(
