@@ -52,6 +52,15 @@ class ContextAwareTranslator:
         Returns:
             List of translated segments
         """
+        logger.info("="*60)
+        logger.info("TRANSLATION PROCESS START")
+        logger.info(f"Input: {len(segments)} segments, {len(speakers) if speakers else 0} speakers")
+
+        # Log input segments
+        for i, seg in enumerate(segments[:3]):
+            logger.info(f"Segment {i}: Speaker={seg.get('speaker')}, Time=[{seg.get('start', 0):.1f}-{seg.get('end', 0):.1f}s]")
+            logger.info(f"  English: {seg.get('text', '')[:100]}...")
+
         if progress_callback:
             progress_callback("Preparing segments for translation...")
 
@@ -82,6 +91,11 @@ class ContextAwareTranslator:
                 context,
                 translated_paragraphs  # Previously translated for consistency
             )
+
+            # Log translation result
+            logger.info(f"Translated paragraph {i+1}:")
+            logger.info(f"  English: {paragraph.get('text', '')[:100]}...")
+            logger.info(f"  Georgian: {translated.get('translated_text', '')[:100]}...")
 
             translated_paragraphs.append(translated)
 

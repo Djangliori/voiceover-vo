@@ -65,23 +65,45 @@ class VoicegainTranscriber:
 
             file_size = os_module.path.getsize(audio_path)
             file_size_mb = file_size / (1024 * 1024)
-            logger.info(f"Audio file size: {file_size_mb:.2f} MB")
+            audio_format = audio_path.split('.')[-1].upper()
 
-            # Convert non-WAV audio to WAV for sync transcription
-            # YouTube downloads M4A/MP3, but sync API needs WAV/PCM
-            if not audio_path.lower().endswith('.wav'):
-                if progress_callback:
-                    progress_callback("Converting audio to WAV format...")
-                original_format = audio_path.split('.')[-1].upper()
-                audio_path = self._convert_to_wav(audio_path)
-                logger.info(f"Converted {original_format} to WAV for Voicegain")
+            logger.info("="*60)
+            logger.info("VOICEGAIN TRANSCRIPTION START")
+            logger.info(f"Audio file: {audio_path}")
+            logger.info(f"Format: {audio_format}")
+            logger.info(f"Size: {file_size_mb:.2f} MB")
+            logger.info("="*60)
 
-            # For WAV files under 10MB, use sync transcribe
-            if file_size_mb < 10:
-                return self._sync_transcribe(audio_path, progress_callback)
-            else:
-                # For larger files, use async
-                return self._async_transcribe(audio_path, progress_callback)
+            # Use async for all files - it supports MP3/M4A directly
+            # No need to convert to WAV!
+            if progress_callback:
+                progress_callback(f"Processing {audio_format} audio with Voicegain...")
+
+            # Always use async - it handles all formats via ffmpeg
+            result = self._async_transcribe(audio_path, progress_callback)
+
+            # Log results
+            segments, speakers = result
+            logger.info("="*60)
+            logger.info("VOICEGAIN TRANSCRIPTION RESULTS")
+            logger.info(f"Total segments: {len(segments)}")
+            logger.info(f"Total speakers: {len(speakers)}")
+
+            # Log first few segments for debugging
+            for i, segment in enumerate(segments[:3]):
+                logger.info(f"Segment {i}: [{segment.get('start', 0):.1f}s - {segment.get('end', 0):.1f}s] Speaker: {segment.get('speaker', 'unknown')}")
+                logger.info(f"  Text: {segment.get('text', '')[:100]}...")
+
+            if len(segments) > 3:
+                logger.info(f"... and {len(segments) - 3} more segments")
+
+            # Log speaker info
+            for speaker in speakers:
+                logger.info(f"Speaker {speaker.get('id')}: {speaker.get('gender', 'unknown')} / {speaker.get('age', 'unknown')}")
+
+            logger.info("="*60)
+
+            return result
 
         except Exception as e:
             logger.error(f"Voicegain transcription failed: {e}")
@@ -208,17 +230,24 @@ class VoicegainTranscriber:
             }
 
             # Send async request to correct endpoint
+            logger.info(f"Sending async request to {self.base_url}/asr/transcribe/async")
+            logger.info(f"Audio size being sent: {len(audio_base64)} bytes (base64)")
+
             response = requests.post(
                 f"{self.base_url}/asr/transcribe/async",  # Changed to transcribe/async
                 headers=self.headers,
                 json=request_body
             )
 
+            logger.info(f"Voicegain response status: {response.status_code}")
+
             if response.status_code not in [200, 201, 202]:
-                logger.error(f"Async start failed: {response.status_code} - {response.text}")
+                logger.error(f"Async start failed: {response.status_code}")
+                logger.error(f"Response body: {response.text[:500]}")
                 return [], []
 
             result = response.json()
+            logger.info(f"Async request accepted: {json.dumps(result, indent=2)[:500]}")
 
             # Get session ID
             if "sessions" in result and len(result["sessions"]) > 0:
@@ -254,16 +283,19 @@ class VoicegainTranscriber:
                 response = requests.get(poll_url, headers=self.headers)
 
                 if response.status_code == 404:
+                    logger.debug(f"Poll {i}: Not ready yet")
                     continue  # Not ready yet
 
                 if response.status_code != 200:
-                    logger.warning(f"Poll status {response.status_code}")
+                    logger.warning(f"Poll {i}: Status {response.status_code}")
                     continue
 
                 result = response.json()
 
                 # Check if done
                 if result.get("result", {}).get("final", False):
+                    logger.info(f"Transcription complete after {i} polls")
+                    logger.info(f"Result structure: {json.dumps(result, indent=2)[:1000]}")
                     return self._parse_async_results(result)
 
                 if progress_callback and i % 5 == 0:
