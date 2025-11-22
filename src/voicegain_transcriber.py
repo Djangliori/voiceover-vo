@@ -357,12 +357,20 @@ class VoicegainTranscriber:
             logger.info(f"Async request accepted: {json.dumps(result, indent=2)[:500]}")
             console.log("Async transcription started successfully", level="SUCCESS", session_id=session_id)
 
-            # Get session ID
-            transcription_session_id = None
+            # Get session ID and poll URL from response
+            session_data = None
             if "sessions" in result and len(result["sessions"]) > 0:
-                transcription_session_id = result["sessions"][0].get("sessionId")
+                session_data = result["sessions"][0]
             else:
-                transcription_session_id = result.get("sessionId")
+                session_data = result
+
+            transcription_session_id = session_data.get("sessionId")
+            # Use the sessionUrl or poll.url from response - Voicegain provides the correct URL
+            poll_url = session_data.get("sessionUrl") or session_data.get("poll", {}).get("url")
+
+            if not poll_url:
+                # Fallback to constructing URL
+                poll_url = f"{self.base_url}/asr/transcribe/{transcription_session_id}"
 
             if not transcription_session_id:
                 error_msg = f"No session ID in response: {json.dumps(result, indent=2)}"
@@ -372,17 +380,18 @@ class VoicegainTranscriber:
                 return [], []
 
             logger.info(f"Started async transcription: {transcription_session_id}")
+            logger.info(f"Poll URL: {poll_url}")
             console.log(f"Polling session: {transcription_session_id}", session_id=session_id)
 
-            # Poll for results
-            return self._poll_and_parse(transcription_session_id, progress_callback, session_id)
+            # Poll for results using the URL from Voicegain
+            return self._poll_and_parse(poll_url, progress_callback, session_id)
 
         except Exception as e:
             logger.error(f"Async transcription error: {e}")
             return [], []
 
 
-    def _poll_and_parse(self, transcription_session_id: str, progress_callback: Optional[callable] = None,
+    def _poll_and_parse(self, poll_url: str, progress_callback: Optional[callable] = None,
                         console_session_id: str = None) -> Tuple[List[Dict], List[Dict]]:
         """
         Poll for async results and parse them.
@@ -391,8 +400,8 @@ class VoicegainTranscriber:
         1. Poll without ?full=true to check progress
         2. When session.final=true, poll with ?full=true to get transcript
         """
-        poll_url = f"{self.base_url}/asr/transcribe/{transcription_session_id}"
         max_attempts = 120
+        logger.info(f"Starting to poll: {poll_url}")
 
         for i in range(max_attempts):
             try:
@@ -414,14 +423,15 @@ class VoicegainTranscriber:
 
                 result = response.json()
 
-                # Log poll response for debugging (first poll and every 10th)
-                if i == 0 or i % 10 == 0:
-                    logger.info(f"Poll {i} response keys: {result.keys()}")
-                    if "session" in result:
-                        logger.info(f"Poll {i} session: {result['session']}")
-
                 # Check if done - NOTE: 'final' is under 'session', not 'result'!
-                session_final = result.get("session", {}).get("final", False)
+                session_data = result.get("session", {})
+                session_final = session_data.get("final", False)
+
+                # Log poll response for debugging
+                if i == 0 or i % 5 == 0 or session_final:
+                    logger.info(f"Poll {i}: keys={list(result.keys())}, session.final={session_final}")
+                    if session_data:
+                        logger.info(f"Poll {i} session data: {json.dumps(session_data)[:500]}")
 
                 if session_final:
                     logger.info(f"Session marked as final after {i} polls, fetching full transcript...")
