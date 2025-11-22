@@ -350,13 +350,13 @@ class VoicegainTranscriber:
             audio_format = audio_path.split('.')[-1].lower()
 
             # Request structure using uploaded audio ID
-            # Enable diarization and speaker analytics for gender/age detection
+            # Enable diarization for speaker separation
             request_body = {
                 "sessions": [{
                     "asyncMode": "OFF-LINE",  # Offline processing mode
                     "audioChannelSelector": "mix",  # Mix stereo to mono if needed
                     "content": {
-                        "full": ["transcript", "words", "speakerAnalytics"],  # Include speaker analytics
+                        "full": ["transcript", "words"],  # Get full transcript and word timings
                         "incremental": []
                     },
                     "diarization": {
