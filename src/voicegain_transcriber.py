@@ -49,7 +49,7 @@ class VoicegainTranscriber:
             "Content-Type": "application/json"
         }
 
-        logger.info("Voicegain transcriber initialized (simplified version)")
+        logger.info("Voicegain transcriber initialized (unlimited size version)")
 
     def transcribe_with_analytics(
         self,
@@ -215,27 +215,98 @@ class VoicegainTranscriber:
             logger.error(f"Sync transcription error: {e}")
             return [], []
 
+    def _upload_audio_to_voicegain(self, audio_path: str, session_id: str = None) -> Optional[str]:
+        """
+        Upload audio file to Voicegain's data store.
+        Returns the data UUID that can be used for transcription.
+        This allows transcribing files of ANY size.
+        """
+        try:
+            file_size = os.path.getsize(audio_path)
+            logger.info(f"Uploading audio to Voicegain: {audio_path} ({file_size / (1024*1024):.2f} MB)")
+            console.log(f"Uploading {file_size / (1024*1024):.2f} MB audio to Voicegain...", session_id=session_id)
+
+            # First, create a data object
+            create_response = requests.post(
+                f"{self.base_url}/data",
+                headers=self.headers,
+                json={
+                    "name": os.path.basename(audio_path),
+                    "description": "Audio for transcription",
+                    "contentType": "audio/mpeg"  # Will be auto-detected
+                }
+            )
+
+            if create_response.status_code not in [200, 201]:
+                logger.error(f"Failed to create data object: {create_response.status_code} - {create_response.text}")
+                console.log(f"Data object creation failed: {create_response.status_code}", level="ERROR", session_id=session_id)
+                return None
+
+            data_object = create_response.json()
+            data_uuid = data_object.get("objectId") or data_object.get("uuid")
+
+            if not data_uuid:
+                logger.error(f"No UUID in data object response: {data_object}")
+                return None
+
+            logger.info(f"Created data object with UUID: {data_uuid}")
+
+            # Now upload the file content
+            upload_headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/octet-stream"
+            }
+
+            with open(audio_path, 'rb') as audio_file:
+                upload_response = requests.put(
+                    f"{self.base_url}/data/{data_uuid}/file",
+                    headers=upload_headers,
+                    data=audio_file
+                )
+
+            if upload_response.status_code not in [200, 201, 204]:
+                logger.error(f"Failed to upload audio file: {upload_response.status_code} - {upload_response.text}")
+                console.log(f"Audio upload failed: {upload_response.status_code}", level="ERROR", session_id=session_id)
+                return None
+
+            logger.info(f"Audio uploaded successfully to UUID: {data_uuid}")
+            console.log(f"Audio uploaded to Voicegain data store", level="SUCCESS", session_id=session_id)
+
+            return data_uuid
+
+        except Exception as e:
+            logger.error(f"Error uploading audio to Voicegain: {e}")
+            console.log(f"Upload error: {e}", level="ERROR", session_id=session_id)
+            return None
+
     def _async_transcribe(self, audio_path: str, progress_callback: Optional[callable] = None) -> Tuple[List[Dict], List[Dict]]:
         """
         Async transcription using /asr/transcribe/async
-        OFF-LINE mode supports all audio formats via ffmpeg
+        Uses Voicegain's audio upload endpoint for large files
         """
         try:
             if progress_callback:
-                progress_callback("Using async transcription...")
+                progress_callback("Uploading audio to Voicegain...")
 
             session_id = audio_path.split('/')[-1].split('_')[0] if '/' in audio_path else 'unknown'
 
-            # Read and encode audio
-            with open(audio_path, 'rb') as audio_file:
-                audio_data = audio_file.read()
-                audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+            # First, upload the audio file to Voicegain's data endpoint
+            # This returns a data ID that we can use in the transcription request
+            audio_id = self._upload_audio_to_voicegain(audio_path, session_id)
+            if not audio_id:
+                logger.error("Failed to upload audio to Voicegain")
+                return [], []
+
+            logger.info(f"Audio uploaded successfully, ID: {audio_id}")
+            console.log(f"Audio uploaded, ID: {audio_id}", level="SUCCESS", session_id=session_id)
+
+            if progress_callback:
+                progress_callback("Starting transcription...")
 
             # Determine audio format
             audio_format = audio_path.split('.')[-1].lower()
 
-            # Request structure based on Voicegain documentation
-            # OFF-LINE mode for offline/batch transcription
+            # Request structure using uploaded audio ID
             request_body = {
                 "sessions": [{
                     "asyncMode": "OFF-LINE",  # Offline processing mode
@@ -251,8 +322,8 @@ class VoicegainTranscriber:
                 }],
                 "audio": {
                     "source": {
-                        "inline": {
-                            "data": audio_base64
+                        "dataStore": {
+                            "uuid": audio_id  # Use the uploaded audio ID
                         }
                     }
                 },
@@ -269,11 +340,10 @@ class VoicegainTranscriber:
 
             # Send async request to correct endpoint
             logger.info(f"Sending async request to {self.base_url}/asr/transcribe/async")
-            logger.info(f"Audio format: {audio_format}")
-            logger.info(f"Audio size: {len(audio_data)} bytes, Base64: {len(audio_base64)} bytes")
+            logger.info(f"Using dataStore audio ID: {audio_id}")
 
             # Log to console
-            console.log(f"Sending {audio_format} audio ({len(audio_data)} bytes) to Voicegain", session_id=session_id)
+            console.log(f"Starting transcription with uploaded audio", session_id=session_id)
 
             response = requests.post(
                 f"{self.base_url}/asr/transcribe/async",
