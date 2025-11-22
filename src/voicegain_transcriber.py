@@ -217,7 +217,7 @@ class VoicegainTranscriber:
 
     def _upload_audio_to_voicegain(self, audio_path: str, session_id: str = None) -> Optional[str]:
         """
-        Upload audio file to Voicegain's data store.
+        Upload audio file to Voicegain's data store using POST /data/file.
         Returns the data UUID that can be used for transcription.
         This allows transcribing files of ANY size.
         """
@@ -226,55 +226,41 @@ class VoicegainTranscriber:
             logger.info(f"Uploading audio to Voicegain: {audio_path} ({file_size / (1024*1024):.2f} MB)")
             console.log(f"Uploading {file_size / (1024*1024):.2f} MB audio to Voicegain...", session_id=session_id)
 
-            # First, create a data object
-            create_response = requests.post(
-                f"{self.base_url}/data",
-                headers=self.headers,
-                json={
-                    "name": os.path.basename(audio_path),
-                    "description": "Audio for transcription",
-                    "contentType": "audio/mpeg"  # Will be auto-detected
-                }
-            )
-
-            if create_response.status_code not in [200, 201]:
-                logger.error(f"Failed to create data object: {create_response.status_code} - {create_response.text}")
-                console.log(f"Data object creation failed: {create_response.status_code}", level="ERROR", session_id=session_id)
-                return None
-
-            data_object = create_response.json()
-            data_uuid = data_object.get("objectId") or data_object.get("uuid")
-
-            if not data_uuid:
-                logger.error(f"No UUID in data object response: {data_object}")
-                return None
-
-            logger.info(f"Created data object with UUID: {data_uuid}")
-
-            # Now upload the file content using PUT with multipart form data
+            # Use POST /data/file to upload audio directly
+            # This is the documented way per Voicegain API docs
             upload_headers = {
                 "Authorization": f"Bearer {self.api_key}"
                 # Don't set Content-Type - requests will set it for multipart
             }
 
-            # Upload as multipart form data with PUT method
             filename = os.path.basename(audio_path)
             with open(audio_path, 'rb') as audio_file:
                 files = {
                     'file': (filename, audio_file, 'audio/mpeg')
                 }
-                upload_response = requests.put(
-                    f"{self.base_url}/data/{data_uuid}/file",
+                upload_response = requests.post(
+                    f"{self.base_url}/data/file",
                     headers=upload_headers,
                     files=files
                 )
 
-            if upload_response.status_code not in [200, 201, 204]:
+            logger.info(f"Upload response: {upload_response.status_code} - {upload_response.text[:500]}")
+
+            if upload_response.status_code not in [200, 201]:
                 logger.error(f"Failed to upload audio file: {upload_response.status_code} - {upload_response.text}")
                 console.log(f"Audio upload failed: {upload_response.status_code}", level="ERROR", session_id=session_id)
                 return None
 
-            logger.info(f"Audio uploaded successfully to UUID: {data_uuid}")
+            # Get the UUID from the response
+            result = upload_response.json()
+            data_uuid = result.get("objectId") or result.get("uuid") or result.get("dataObjectId")
+
+            if not data_uuid:
+                logger.error(f"No UUID in upload response: {result}")
+                console.log(f"No UUID in response", level="ERROR", session_id=session_id)
+                return None
+
+            logger.info(f"Audio uploaded successfully, UUID: {data_uuid}")
             console.log(f"Audio uploaded to Voicegain data store", level="SUCCESS", session_id=session_id)
 
             return data_uuid
