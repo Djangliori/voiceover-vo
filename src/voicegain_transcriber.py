@@ -65,7 +65,12 @@ class VoicegainTranscriber:
             file_size_mb = file_size / (1024 * 1024)
             logger.info(f"Audio file size: {file_size_mb:.2f} MB")
 
-            # For now, try a simpler approach - use synchronous transcription for smaller files
+            # Try the simplest endpoint first (/asr/recognize)
+            result = self._simple_recognize(audio_path, progress_callback)
+            if result[0]:  # If we got segments
+                return result
+
+            # If that fails, try sync transcribe
             if file_size_mb < 10:  # If less than 10MB, use sync
                 return self._sync_transcribe(audio_path, progress_callback)
             else:
@@ -74,6 +79,48 @@ class VoicegainTranscriber:
         except Exception as e:
             logger.error(f"Voicegain transcription failed: {e}")
             # Return empty results on failure
+            return [], []
+
+    def _simple_recognize(self, audio_path: str, progress_callback: Optional[callable] = None) -> Tuple[List[Dict], List[Dict]]:
+        """
+        Simplest possible recognition - just audio, no settings
+        """
+        try:
+            if progress_callback:
+                progress_callback("Using simple recognition...")
+
+            # Read and encode audio
+            with open(audio_path, 'rb') as audio_file:
+                audio_data = audio_file.read()
+                audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+
+            # ABSOLUTELY MINIMAL request - just audio
+            request_body = {
+                "audio": {
+                    "source": {
+                        "inline": {
+                            "data": audio_base64
+                        }
+                    }
+                }
+            }
+
+            # Send to simplest endpoint
+            response = requests.post(
+                f"{self.base_url}/asr/recognize",
+                headers=self.headers,
+                json=request_body
+            )
+
+            if response.status_code != 200:
+                logger.warning(f"Simple recognize returned {response.status_code}")
+                return [], []
+
+            result = response.json()
+            return self._parse_recognize_results(result)
+
+        except Exception as e:
+            logger.warning(f"Simple recognize error: {e}")
             return [], []
 
     def _sync_transcribe(self, audio_path: str, progress_callback: Optional[callable] = None) -> Tuple[List[Dict], List[Dict]]:
@@ -89,18 +136,13 @@ class VoicegainTranscriber:
                 audio_data = audio_file.read()
                 audio_base64 = base64.b64encode(audio_data).decode('utf-8')
 
-            # MINIMAL request - just audio and language
+            # ABSOLUTELY MINIMAL request - just audio, no settings at all
             request_body = {
                 "audio": {
                     "source": {
                         "inline": {
                             "data": audio_base64
                         }
-                    }
-                },
-                "settings": {
-                    "asr": {
-                        "languages": ["en-US"]
                     }
                 }
             }
@@ -114,7 +156,7 @@ class VoicegainTranscriber:
 
             if response.status_code != 200:
                 logger.error(f"Sync transcription failed: {response.status_code} - {response.text}")
-                return self._fallback_transcribe(audio_path, audio_base64, progress_callback)
+                return [], []
 
             result = response.json()
             return self._parse_sync_results(result)
@@ -179,41 +221,6 @@ class VoicegainTranscriber:
             logger.error(f"Async transcription error: {e}")
             return [], []
 
-    def _fallback_transcribe(self, audio_path: str, audio_base64: str, progress_callback: Optional[callable] = None) -> Tuple[List[Dict], List[Dict]]:
-        """
-        Fallback using recognize endpoint (simpler)
-        """
-        try:
-            if progress_callback:
-                progress_callback("Trying fallback transcription method...")
-
-            # Try the /asr/recognize endpoint which is simpler
-            request_body = {
-                "audio": {
-                    "source": {
-                        "inline": {
-                            "data": audio_base64
-                        }
-                    }
-                }
-            }
-
-            response = requests.post(
-                f"{self.base_url}/asr/recognize",
-                headers=self.headers,
-                json=request_body
-            )
-
-            if response.status_code != 200:
-                logger.error(f"Fallback also failed: {response.status_code}")
-                return [], []
-
-            result = response.json()
-            return self._parse_recognize_results(result)
-
-        except Exception as e:
-            logger.error(f"Fallback transcription error: {e}")
-            return [], []
 
     def _poll_and_parse(self, session_id: str, progress_callback: Optional[callable] = None) -> Tuple[List[Dict], List[Dict]]:
         """
