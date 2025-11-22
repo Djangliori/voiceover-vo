@@ -427,7 +427,8 @@ class VoicegainTranscriber:
                     progress_callback(f"Processing... ({i}/{max_attempts})")
 
                 # Check for completion - both status string and result.final patterns
-                if is_final or status in ["done", "completed", "complete", "success", "finished"]:
+                # IMPORTANT: Voicegain SA API returns 'ready' when processing is complete!
+                if is_final or status in ["done", "completed", "complete", "success", "finished", "ready"]:
                     logger.info(f"SA session completed after {i} polls (status: {status}, is_final: {is_final})")
                     return self._fetch_sa_data(sa_session_id, session_id)
 
