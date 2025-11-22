@@ -41,6 +41,9 @@ class Config:
     MAX_SPEAKERS = int(os.getenv('MAX_SPEAKERS', 10))  # Maximum speakers to detect
     SPEAKER_MERGE_PAUSE = float(os.getenv('SPEAKER_MERGE_PAUSE', 1.5))  # Seconds between segments to merge
 
+    # TTS Settings
+    TTS_PROVIDER = os.getenv('TTS_PROVIDER', 'elevenlabs')  # 'elevenlabs' or 'gemini'
+
     # Directories
     OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'output')
     TEMP_DIR = os.getenv('TEMP_DIR', 'temp')
