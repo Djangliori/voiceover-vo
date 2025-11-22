@@ -58,10 +58,22 @@ class VoicegainTranscriber:
             if progress_callback:
                 progress_callback("Preparing audio for Voicegain...")
 
+            # Check file exists and get size
+            import os as os_module
+            if not os_module.path.exists(audio_path):
+                raise Exception(f"Audio file not found: {audio_path}")
+
+            file_size = os_module.path.getsize(audio_path)
+            file_size_mb = file_size / (1024 * 1024)
+            logger.info(f"Audio file size: {file_size_mb:.2f} MB ({file_size} bytes)")
+
             # Read and encode audio file to base64
             with open(audio_path, 'rb') as audio_file:
                 audio_data = audio_file.read()
                 audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+
+            base64_size_mb = len(audio_base64) / (1024 * 1024)
+            logger.info(f"Base64 encoded size: {base64_size_mb:.2f} MB")
 
             if progress_callback:
                 progress_callback("Starting transcription with speaker diarization...")
