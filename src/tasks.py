@@ -278,6 +278,56 @@ def process_video_task(self, video_id, youtube_url, user_id=None):
 
         update_progress(f"✅ Generated {len(voiceover_segments)} Georgian voiceover clips", 70)
 
+        # Save debug data for inspection
+        try:
+            debug_data = {
+                'transcription': [
+                    {
+                        'index': i,
+                        'text': seg.get('text', ''),
+                        'start': seg.get('start', 0),
+                        'end': seg.get('end', 0),
+                        'speaker': seg.get('speaker', 'unknown'),
+                        'duration': round(seg.get('end', 0) - seg.get('start', 0), 2)
+                    }
+                    for i, seg in enumerate(segments)
+                ],
+                'translation': [
+                    {
+                        'index': i,
+                        'original_text': seg.get('original_text', seg.get('text', '')),
+                        'translated_text': seg.get('translated_text', seg.get('text', '')),
+                        'start': seg.get('start', 0),
+                        'end': seg.get('end', 0),
+                        'speaker': seg.get('speaker', 'unknown')
+                    }
+                    for i, seg in enumerate(translated_segments)
+                ],
+                'tts_input': [
+                    {
+                        'index': i,
+                        'text': seg.get('translated_text', seg.get('text', '')),
+                        'start': seg.get('start', 0),
+                        'end': seg.get('end', 0),
+                        'speaker': seg.get('speaker', 'unknown'),
+                        'audio_duration': seg.get('audio_duration', 0),
+                        'audio_path': seg.get('audio_path', '')
+                    }
+                    for i, seg in enumerate(voiceover_segments)
+                ],
+                'speakers': speakers if speakers else [],
+                'summary': {
+                    'total_segments': len(segments),
+                    'translated_segments': len(translated_segments),
+                    'voiceover_segments': len(voiceover_segments),
+                    'speakers_detected': len(speakers) if speakers else 0
+                }
+            }
+            self.db.save_debug_data(video_id, debug_data)
+            logger.info(f"Saved debug data for {video_id}")
+        except Exception as e:
+            logger.error(f"Failed to save debug data: {e}")
+
         # Step 5: Mix audio (70-85%)
         update_progress("🎛️ Mixing original audio with Georgian voiceover...", 72)
         mixed_audio_path = os.path.join(temp_dir, f"{video_id}_mixed.wav")

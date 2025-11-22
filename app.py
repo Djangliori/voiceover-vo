@@ -670,6 +670,73 @@ def api_usage_stats():
         }), 500
 
 
+@app.route('/api/pipeline-debug/<video_id>')
+def api_pipeline_debug(video_id):
+    """
+    Get detailed pipeline debug data for a video.
+    Shows: transcription, translation, TTS input with all timecodes.
+    """
+    try:
+        video_id = validate_video_id(video_id)
+
+        # Get debug data from database
+        debug_data = db.get_debug_data(video_id)
+
+        if not debug_data:
+            # Try to get basic video info
+            video = db.get_video_by_id(video_id)
+            if not video:
+                return jsonify({
+                    'success': False,
+                    'error': 'Video not found'
+                }), 404
+
+            return jsonify({
+                'success': False,
+                'error': 'Debug data not available for this video. It may have been processed before debug logging was enabled.',
+                'video': video.to_dict()
+            }), 404
+
+        # Get video info too
+        video = db.get_video_by_id(video_id)
+
+        return jsonify({
+            'success': True,
+            'video_id': video_id,
+            'video': video.to_dict() if video else None,
+            'debug_data': debug_data
+        })
+
+    except ValidationError as ve:
+        return jsonify({'success': False, 'error': ve.message}), ve.status_code
+    except Exception as e:
+        logger.error("pipeline_debug_error", video_id=video_id, error=str(e), exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/pipeline/<video_id>')
+def pipeline_viewer(video_id):
+    """
+    Debug UI page showing pipeline steps: transcription -> translation -> TTS
+    """
+    try:
+        video_id = validate_video_id(video_id)
+        video = db.get_video_by_id(video_id)
+
+        return render_template('pipeline.html',
+                             video_id=video_id,
+                             video=video.to_dict() if video else None)
+
+    except ValidationError as ve:
+        return render_template('pipeline.html',
+                             video_id=video_id,
+                             error=ve.message)
+    except Exception as e:
+        return render_template('pipeline.html',
+                             video_id=video_id,
+                             error=str(e))
+
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint showing system status"""

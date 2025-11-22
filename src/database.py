@@ -30,6 +30,7 @@ class Video(Base):
     progress = Column(Integer, default=0)  # Progress percentage (0-100)
     status_message = Column(String(500))  # Current processing step message
     error_message = Column(Text)  # Use Text for long error messages
+    debug_data = Column(Text)  # JSON: transcription, translation, TTS details for debugging
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
     view_count = Column(Integer, default=0)
@@ -47,6 +48,7 @@ class Video(Base):
             'progress': self.progress,
             'status_message': self.status_message,
             'error_message': self.error_message,
+            'debug_data': self.debug_data,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'completed_at': self.completed_at.isoformat() if self.completed_at else None,
             'view_count': self.view_count
@@ -353,6 +355,46 @@ class Database:
             session.rollback()
         finally:
             self.close_session(session)
+
+    def save_debug_data(self, video_id, debug_data):
+        """
+        Save debug data (transcription, translation, TTS details) for a video
+
+        Args:
+            video_id: YouTube video ID
+            debug_data: Dictionary with pipeline debug info
+        """
+        import json
+        session = self.get_session()
+        try:
+            video = session.query(Video).filter_by(video_id=video_id).first()
+            if video:
+                video.debug_data = json.dumps(debug_data, ensure_ascii=False)
+                session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to save debug data: {e}")
+        finally:
+            self.close_session(session)
+
+    def get_debug_data(self, video_id):
+        """
+        Get debug data for a video
+
+        Args:
+            video_id: YouTube video ID
+
+        Returns:
+            Dictionary with debug data or None
+        """
+        import json
+        video = self.get_video(video_id)
+        if video and video.debug_data:
+            try:
+                return json.loads(video.debug_data)
+            except:
+                return None
+        return None
 
     def get_recent_videos(self, limit=20):
         """

@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pipeline Debug - {{ video_id }}</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            margin: 0;
+            padding: 20px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #333;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .video-info {
+            background: #16213e;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .video-info h3 {
+            margin: 0 0 10px 0;
+            color: #4cc9f0;
+        }
+        .video-info p {
+            margin: 5px 0;
+            color: #aaa;
+        }
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 12px 24px;
+            background: #16213e;
+            border: none;
+            color: #aaa;
+            cursor: pointer;
+            border-radius: 8px 8px 0 0;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .tab:hover {
+            background: #1f3460;
+            color: #fff;
+        }
+        .tab.active {
+            background: #4cc9f0;
+            color: #000;
+            font-weight: bold;
+        }
+        .tab-content {
+            display: none;
+            background: #16213e;
+            border-radius: 0 8px 8px 8px;
+            padding: 20px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .summary {
+            background: #0f3460;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+        .summary-item {
+            text-align: center;
+        }
+        .summary-item .value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #4cc9f0;
+        }
+        .summary-item .label {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+        }
+        .segment {
+            background: #0f3460;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            border-left: 4px solid #4cc9f0;
+        }
+        .segment:nth-child(odd) {
+            border-left-color: #f72585;
+        }
+        .segment-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: #888;
+        }
+        .segment-index {
+            background: #4cc9f0;
+            color: #000;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .segment:nth-child(odd) .segment-index {
+            background: #f72585;
+        }
+        .timecode {
+            font-family: 'Courier New', monospace;
+            color: #4cc9f0;
+        }
+        .speaker-badge {
+            background: #7209b7;
+            color: #fff;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+        .text-content {
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .original-text {
+            color: #f8f8f2;
+            margin-bottom: 8px;
+        }
+        .translated-text {
+            color: #50fa7b;
+            font-style: italic;
+        }
+        .audio-info {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #333;
+            font-size: 12px;
+            color: #888;
+        }
+        .audio-info span {
+            margin-right: 20px;
+        }
+        .error-box {
+            background: #ff4444;
+            color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: #888;
+        }
+        .loading::after {
+            content: '';
+            animation: dots 1.5s infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+        .btn {
+            padding: 10px 20px;
+            background: #4cc9f0;
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .btn:hover {
+            background: #3ab8df;
+        }
+        .btn-secondary {
+            background: #333;
+            color: #fff;
+        }
+        .btn-secondary:hover {
+            background: #444;
+        }
+        .comparison-view {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .comparison-column h4 {
+            margin: 0 0 15px 0;
+            color: #4cc9f0;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
+        }
+        @media (max-width: 768px) {
+            .comparison-view {
+                grid-template-columns: 1fr;
+            }
+        }
+        .filter-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .filter-bar input {
+            padding: 8px 12px;
+            background: #0f3460;
+            border: 1px solid #333;
+            color: #fff;
+            border-radius: 5px;
+            flex: 1;
+            min-width: 200px;
+        }
+        .filter-bar select {
+            padding: 8px 12px;
+            background: #0f3460;
+            border: 1px solid #333;
+            color: #fff;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Pipeline Debug - {{ video_id }}</h1>
+        <div>
+            <a href="/watch?v={{ video_id }}" class="btn btn-secondary">Watch Video</a>
+            <button class="btn" onclick="refreshData()">Refresh Data</button>
+        </div>
+    </div>
+
+    {% if error %}
+    <div class="error-box">
+        <h3>Error</h3>
+        <p>{{ error }}</p>
+    </div>
+    {% else %}
+
+    <div class="video-info" id="videoInfo">
+        {% if video %}
+        <h3>{{ video.title or 'Unknown Title' }}</h3>
+        <p>Status: <strong>{{ video.processing_status }}</strong></p>
+        {% else %}
+        <p>Loading video info...</p>
+        {% endif %}
+    </div>
+
+    <div class="summary" id="summary">
+        <div class="summary-item">
+            <div class="value" id="totalSegments">-</div>
+            <div class="label">Transcribed</div>
+        </div>
+        <div class="summary-item">
+            <div class="value" id="translatedSegments">-</div>
+            <div class="label">Translated</div>
+        </div>
+        <div class="summary-item">
+            <div class="value" id="ttsSegments">-</div>
+            <div class="label">TTS Generated</div>
+        </div>
+        <div class="summary-item">
+            <div class="value" id="speakersCount">-</div>
+            <div class="label">Speakers</div>
+        </div>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active" onclick="showTab('transcription')">1. Transcription (Voicegain)</button>
+        <button class="tab" onclick="showTab('translation')">2. Translation (OpenAI)</button>
+        <button class="tab" onclick="showTab('tts')">3. TTS Input (Gemini)</button>
+        <button class="tab" onclick="showTab('comparison')">Compare All</button>
+    </div>
+
+    <div id="transcription" class="tab-content active">
+        <div class="filter-bar">
+            <input type="text" id="transcriptionFilter" placeholder="Filter transcription..." oninput="filterSegments('transcription')">
+            <select id="transcriptionSpeaker" onchange="filterSegments('transcription')">
+                <option value="">All Speakers</option>
+            </select>
+        </div>
+        <div id="transcriptionContent" class="loading">Loading transcription data</div>
+    </div>
+
+    <div id="translation" class="tab-content">
+        <div class="filter-bar">
+            <input type="text" id="translationFilter" placeholder="Filter translation..." oninput="filterSegments('translation')">
+        </div>
+        <div id="translationContent" class="loading">Loading translation data</div>
+    </div>
+
+    <div id="tts" class="tab-content">
+        <div class="filter-bar">
+            <input type="text" id="ttsFilter" placeholder="Filter TTS..." oninput="filterSegments('tts')">
+        </div>
+        <div id="ttsContent" class="loading">Loading TTS data</div>
+    </div>
+
+    <div id="comparison" class="tab-content">
+        <div class="comparison-view" id="comparisonContent">
+            <div class="loading">Loading comparison data</div>
+        </div>
+    </div>
+    {% endif %}
+
+    <script>
+        const videoId = '{{ video_id }}';
+        let debugData = null;
+
+        function showTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+
+            // Show selected tab
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function formatTime(seconds) {
+            if (seconds === undefined || seconds === null) return '--:--';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            const ms = Math.floor((seconds % 1) * 100);
+            return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+        }
+
+        function renderTranscription(data) {
+            const container = document.getElementById('transcriptionContent');
+            if (!data || !data.transcription || data.transcription.length === 0) {
+                container.innerHTML = '<div class="error-box">No transcription data available</div>';
+                return;
+            }
+
+            // Populate speaker filter
+            const speakers = [...new Set(data.transcription.map(s => s.speaker).filter(s => s))];
+            const speakerSelect = document.getElementById('transcriptionSpeaker');
+            speakerSelect.innerHTML = '<option value="">All Speakers</option>' +
+                speakers.map(s => `<option value="${s}">${s}</option>`).join('');
+
+            const html = data.transcription.map((seg, i) => `
+                <div class="segment" data-text="${(seg.text || '').toLowerCase()}" data-speaker="${seg.speaker || ''}">
+                    <div class="segment-header">
+                        <div>
+                            <span class="segment-index">#${seg.index !== undefined ? seg.index : i}</span>
+                            ${seg.speaker ? `<span class="speaker-badge">${seg.speaker}</span>` : ''}
+                        </div>
+                        <div>
+                            <span class="timecode">${formatTime(seg.start)} - ${formatTime(seg.end)}</span>
+                            <span style="margin-left: 10px;">(${seg.duration ? seg.duration.toFixed(2) : ((seg.end - seg.start) || 0).toFixed(2)}s)</span>
+                        </div>
+                    </div>
+                    <div class="text-content">
+                        <div class="original-text">${seg.text || '<em>No text</em>'}</div>
+                    </div>
+                </div>
+            `).join('');
+
+            container.innerHTML = html;
+        }
+
+        function renderTranslation(data) {
+            const container = document.getElementById('translationContent');
+            if (!data || !data.translation || data.translation.length === 0) {
+                container.innerHTML = '<div class="error-box">No translation data available</div>';
+                return;
+            }
+
+            const html = data.translation.map((seg, i) => `
+                <div class="segment" data-text="${((seg.original_text || '') + ' ' + (seg.translated_text || '')).toLowerCase()}">
+                    <div class="segment-header">
+                        <div>
+                            <span class="segment-index">#${seg.index !== undefined ? seg.index : i}</span>
+                            ${seg.speaker ? `<span class="speaker-badge">${seg.speaker}</span>` : ''}
+                        </div>
+                        <div>
+                            <span class="timecode">${formatTime(seg.start)} - ${formatTime(seg.end)}</span>
+                        </div>
+                    </div>
+                    <div class="text-content">
+                        <div class="original-text"><strong>EN:</strong> ${seg.original_text || '<em>No original text</em>'}</div>
+                        <div class="translated-text"><strong>KA:</strong> ${seg.translated_text || '<em>No translation</em>'}</div>
+                    </div>
+                </div>
+            `).join('');
+
+            container.innerHTML = html;
+        }
+
+        function renderTTS(data) {
+            const container = document.getElementById('ttsContent');
+            if (!data || !data.tts_input || data.tts_input.length === 0) {
+                container.innerHTML = '<div class="error-box">No TTS data available</div>';
+                return;
+            }
+
+            const html = data.tts_input.map((seg, i) => `
+                <div class="segment" data-text="${(seg.text || '').toLowerCase()}">
+                    <div class="segment-header">
+                        <div>
+                            <span class="segment-index">#${seg.index !== undefined ? seg.index : i}</span>
+                            ${seg.speaker ? `<span class="speaker-badge">${seg.speaker}</span>` : ''}
+                        </div>
+                        <div>
+                            <span class="timecode">${formatTime(seg.start)} - ${formatTime(seg.end)}</span>
+                        </div>
+                    </div>
+                    <div class="text-content">
+                        <div class="translated-text">${seg.text || '<em>No text sent to TTS</em>'}</div>
+                    </div>
+                    <div class="audio-info">
+                        <span>Audio Duration: <strong>${seg.audio_duration ? seg.audio_duration.toFixed(2) + 's' : 'N/A'}</strong></span>
+                        <span>Segment Duration: <strong>${((seg.end - seg.start) || 0).toFixed(2)}s</strong></span>
+                        ${seg.audio_path ? `<span>File: ${seg.audio_path.split('/').pop()}</span>` : ''}
+                    </div>
+                </div>
+            `).join('');
+
+            container.innerHTML = html;
+        }
+
+        function renderComparison(data) {
+            const container = document.getElementById('comparisonContent');
+            if (!data) {
+                container.innerHTML = '<div class="error-box">No data available for comparison</div>';
+                return;
+            }
+
+            // Create side-by-side comparison
+            const maxLen = Math.max(
+                (data.transcription || []).length,
+                (data.translation || []).length,
+                (data.tts_input || []).length
+            );
+
+            let html = '<table style="width:100%; border-collapse: collapse;">';
+            html += '<thead><tr style="background: #0f3460;">';
+            html += '<th style="padding: 10px; text-align: left; border: 1px solid #333;">#</th>';
+            html += '<th style="padding: 10px; text-align: left; border: 1px solid #333;">Timecode</th>';
+            html += '<th style="padding: 10px; text-align: left; border: 1px solid #333;">Transcription (EN)</th>';
+            html += '<th style="padding: 10px; text-align: left; border: 1px solid #333;">Translation (KA)</th>';
+            html += '<th style="padding: 10px; text-align: left; border: 1px solid #333;">TTS Audio</th>';
+            html += '</tr></thead><tbody>';
+
+            for (let i = 0; i < maxLen; i++) {
+                const trans = (data.transcription || [])[i] || {};
+                const transl = (data.translation || [])[i] || {};
+                const tts = (data.tts_input || [])[i] || {};
+
+                html += `<tr style="border: 1px solid #333;">`;
+                html += `<td style="padding: 10px; border: 1px solid #333; vertical-align: top;"><span class="segment-index">#${i}</span></td>`;
+                html += `<td style="padding: 10px; border: 1px solid #333; vertical-align: top;" class="timecode">${formatTime(trans.start || transl.start || tts.start)}</td>`;
+                html += `<td style="padding: 10px; border: 1px solid #333; vertical-align: top;">${trans.text || '-'}</td>`;
+                html += `<td style="padding: 10px; border: 1px solid #333; vertical-align: top; color: #50fa7b;">${transl.translated_text || '-'}</td>`;
+                html += `<td style="padding: 10px; border: 1px solid #333; vertical-align: top;">${tts.audio_duration ? tts.audio_duration.toFixed(2) + 's' : '-'}</td>`;
+                html += `</tr>`;
+            }
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function renderSummary(data) {
+            if (!data || !data.summary) return;
+
+            const s = data.summary;
+            document.getElementById('totalSegments').textContent = s.total_segments || 0;
+            document.getElementById('translatedSegments').textContent = s.translated_segments || 0;
+            document.getElementById('ttsSegments').textContent = s.voiceover_segments || 0;
+            document.getElementById('speakersCount').textContent = s.speakers_detected || 0;
+        }
+
+        function filterSegments(section) {
+            const filterInput = document.getElementById(section + 'Filter');
+            const filterText = filterInput ? filterInput.value.toLowerCase() : '';
+
+            let speakerFilter = '';
+            if (section === 'transcription') {
+                const speakerSelect = document.getElementById('transcriptionSpeaker');
+                speakerFilter = speakerSelect ? speakerSelect.value : '';
+            }
+
+            const container = document.getElementById(section + 'Content');
+            const segments = container.querySelectorAll('.segment');
+
+            segments.forEach(seg => {
+                const text = seg.getAttribute('data-text') || '';
+                const speaker = seg.getAttribute('data-speaker') || '';
+
+                const matchesText = !filterText || text.includes(filterText);
+                const matchesSpeaker = !speakerFilter || speaker === speakerFilter;
+
+                seg.style.display = (matchesText && matchesSpeaker) ? 'block' : 'none';
+            });
+        }
+
+        async function loadDebugData() {
+            try {
+                const response = await fetch(`/api/pipeline-debug/${videoId}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    debugData = result.debug_data;
+
+                    renderSummary(debugData);
+                    renderTranscription(debugData);
+                    renderTranslation(debugData);
+                    renderTTS(debugData);
+                    renderComparison(debugData);
+                } else {
+                    document.querySelectorAll('.tab-content').forEach(el => {
+                        el.innerHTML = `<div class="error-box">${result.error || 'Failed to load debug data'}</div>`;
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading debug data:', error);
+                document.querySelectorAll('.tab-content').forEach(el => {
+                    el.innerHTML = `<div class="error-box">Error loading data: ${error.message}</div>`;
+                });
+            }
+        }
+
+        function refreshData() {
+            document.querySelectorAll('.tab-content').forEach(el => {
+                el.innerHTML = '<div class="loading">Refreshing data</div>';
+            });
+            loadDebugData();
+        }
+
+        // Initial load
+        loadDebugData();
+    </script>
+</body>
+</html>
