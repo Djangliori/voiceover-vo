@@ -62,58 +62,54 @@ class ContextAwareTranslator:
             logger.info(f"  English: {seg.get('text', '')[:100]}...")
 
         if progress_callback:
-            progress_callback("Preparing segments for translation...")
+            progress_callback("Translating segments...")
 
-        # Step 1: Merge segments into paragraphs
-        paragraphs = self.merger.merge_segments_to_paragraphs(segments, speakers)
-        logger.info(f"Merged {len(segments)} segments into {len(paragraphs)} paragraphs")
+        # SIMPLIFIED: Translate each segment directly (no paragraph merging)
+        # This is more reliable and preserves original timing
+        translated_segments = []
+        total_segments = len(segments)
 
-        # Step 2: Analyze speaker styles if available
-        if speakers and len(speakers) > 1:
-            self._analyze_speaker_styles(paragraphs, speakers)
-
-        # Step 3: Translate paragraphs with context
-        translated_paragraphs = []
-        total_paragraphs = len(paragraphs)
-
-        for i, paragraph in enumerate(paragraphs):
+        for i, segment in enumerate(segments):
             if progress_callback:
-                progress = int((i / total_paragraphs) * 100)
-                speaker_info = f" [{paragraph.get('speaker_label', 'Speaker')}]" if 'speaker' in paragraph else ""
-                progress_callback(f"Translating paragraph {i+1}/{total_paragraphs}{speaker_info} ({progress}%)")
+                progress = int((i / total_segments) * 100)
+                progress_callback(f"Translating segment {i+1}/{total_segments} ({progress}%)")
 
-            # Get context for this paragraph
-            context = self.merger.calculate_translation_context(paragraphs, i)
+            # Get the English text
+            english_text = segment.get('text', '').strip()
 
-            # Translate with context
-            translated = self._translate_paragraph_with_context(
-                paragraph,
-                context,
-                translated_paragraphs  # Previously translated for consistency
-            )
+            if not english_text:
+                logger.warning(f"Segment {i} has no text, skipping")
+                continue
 
-            # Log translation result
-            logger.info(f"Translated paragraph {i+1}:")
-            logger.info(f"  English: {paragraph.get('text', '')[:100]}...")
-            logger.info(f"  Georgian: {translated.get('translated_text', '')[:100]}...")
+            # Translate directly
+            try:
+                georgian_text = self._translate_text(english_text)
+            except Exception as e:
+                logger.error(f"Translation failed for segment {i}: {e}")
+                georgian_text = ""
 
-            translated_paragraphs.append(translated)
+            # Create translated segment with original timing
+            translated_seg = segment.copy()
+            translated_seg['original_text'] = english_text
+            translated_seg['text'] = georgian_text
+            translated_seg['translated_text'] = georgian_text
+            translated_seg['translated'] = True
+
+            logger.info(f"Segment {i}: [{segment.get('start', 0):.1f}s-{segment.get('end', 0):.1f}s]")
+            logger.info(f"  EN: {english_text[:60]}...")
+            logger.info(f"  KA: {georgian_text[:60]}...")
+
+            translated_segments.append(translated_seg)
 
             # Small delay to avoid rate limiting
-            if i < total_paragraphs - 1:
-                time.sleep(0.5)
-
-        # Step 4: Split paragraphs back to original timing if needed
-        final_segments = self._restore_original_timing(
-            translated_paragraphs,
-            segments,
-            progress_callback
-        )
+            if i < total_segments - 1:
+                time.sleep(0.3)
 
         if progress_callback:
-            progress_callback(f"Translation complete: {len(final_segments)} segments")
+            progress_callback(f"Translation complete: {len(translated_segments)} segments")
 
-        return final_segments
+        logger.info(f"Translated {len(translated_segments)} segments")
+        return translated_segments
 
     def _analyze_speaker_styles(self, paragraphs: List[Dict], speakers: List[Dict]):
         """
@@ -266,6 +262,44 @@ class ContextAwareTranslator:
         )
 
         return '\n'.join(prompt_parts)
+
+    def _translate_text(self, english_text: str) -> str:
+        """
+        Simple direct translation from English to Georgian.
+        No complex context - just translate the text.
+        """
+        prompt = f"""Translate this English text to Georgian.
+Return ONLY the Georgian translation, nothing else.
+
+English: {english_text}
+
+Georgian:"""
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = openai.ChatCompletion.create(
+                    model="gpt-4o",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a translator. Translate English to Georgian. Return only the translation."
+                        },
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.3,
+                    max_tokens=500,
+                    timeout=30
+                )
+                translation = response['choices'][0]['message']['content'].strip()
+                if translation:
+                    return translation
+            except Exception as e:
+                logger.error(f"Translation error (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+
+        return ""
 
     def _call_gpt4_translation(self, prompt: str, paragraph: Dict) -> str:
         """
