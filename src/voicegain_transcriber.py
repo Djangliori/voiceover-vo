@@ -412,19 +412,23 @@ class VoicegainTranscriber:
                     continue
 
                 result = response.json()
-                status = result.get("status", "").lower()  # Case-insensitive
+                status = result.get("status", "").lower() if result.get("status") else ""
+
+                # Check for ASR-style final flag (result.final)
+                is_final = result.get("result", {}).get("final", False)
 
                 # Log full response every 10 polls for debugging
                 if i % 10 == 0:
                     logger.info(f"Poll {i} response keys: {result.keys()}")
-                    logger.info(f"Poll {i} status: '{status}'")
+                    logger.info(f"Poll {i} status: '{status}', is_final: {is_final}")
+                    logger.debug(f"Poll {i} full response: {json.dumps(result, indent=2)[:1000]}")
 
                 if progress_callback and i % 5 == 0:
                     progress_callback(f"Processing... ({i}/{max_attempts})")
 
-                # Check for completion (multiple possible values)
-                if status in ["done", "completed", "complete", "success", "finished"]:
-                    logger.info(f"SA session completed after {i} polls (status: {status})")
+                # Check for completion - both status string and result.final patterns
+                if is_final or status in ["done", "completed", "complete", "success", "finished"]:
+                    logger.info(f"SA session completed after {i} polls (status: {status}, is_final: {is_final})")
                     return self._fetch_sa_data(sa_session_id, session_id)
 
                 # Check for failure
