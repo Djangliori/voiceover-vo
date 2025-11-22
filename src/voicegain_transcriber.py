@@ -206,82 +206,131 @@ class VoicegainTranscriber:
 
     def _async_transcribe(self, audio_path: str, progress_callback: Optional[callable] = None) -> Tuple[List[Dict], List[Dict]]:
         """
-        Async transcription for larger files - uses /asr/transcribe/async
-        Supports MP3 and other formats via ffmpeg
+        Async transcription using /asr/transcribe/async
+        OFF-LINE mode supports all audio formats via ffmpeg
         """
         try:
             if progress_callback:
                 progress_callback("Using async transcription...")
+
+            session_id = audio_path.split('/')[-1].split('_')[0] if '/' in audio_path else 'unknown'
 
             # Read and encode audio
             with open(audio_path, 'rb') as audio_file:
                 audio_data = audio_file.read()
                 audio_base64 = base64.b64encode(audio_data).decode('utf-8')
 
-            # Async request structure according to OpenAPI spec
-            # OFF-LINE mode for batch transcription
+            # Determine audio format/MIME type
+            audio_format = audio_path.split('.')[-1].lower()
+            mime_type = {
+                'mp3': 'audio/mpeg',
+                'm4a': 'audio/mp4',
+                'mp4': 'audio/mp4',
+                'wav': 'audio/wav',
+                'aac': 'audio/aac',
+                'ogg': 'audio/ogg'
+            }.get(audio_format, 'audio/mpeg')
+
+            # Request structure based on Voicegain documentation
+            # OFF-LINE mode for offline/batch transcription
             request_body = {
                 "sessions": [{
-                    "asyncMode": "OFF-LINE",
+                    "asyncMode": "OFF-LINE",  # Offline processing mode
+                    "audioChannelSelector": "mix",  # Mix stereo to mono if needed
+                    "content": {
+                        "full": ["transcript", "words"],  # Get full transcript and word timings
+                        "incremental": []
+                    },
                     "poll": {
-                        "persist": 600000  # 10 minutes
+                        "afterlife": 60000,  # Keep results for 60 seconds after completion
+                        "persist": 0  # Don't persist to storage
                     }
                 }],
                 "audio": {
                     "source": {
                         "inline": {
-                            "data": audio_base64
+                            "data": audio_base64,
+                            "mimeType": mime_type  # Specify MIME type
                         }
                     }
-                    # No format specification needed for async - it uses ffmpeg
+                },
+                "settings": {
+                    "asr": {
+                        "noInputTimeout": -1,  # No timeout
+                        "completeTimeout": -1,  # No timeout
+                        "sensitivity": 0.5,
+                        "speedVsAccuracy": 0.5,
+                        "languages": ["en"]  # English (not en-US for async)
+                    },
+                    "formatters": [
+                        {
+                            "type": "basic"
+                        }
+                    ]
                 }
             }
 
             # Send async request to correct endpoint
             logger.info(f"Sending async request to {self.base_url}/asr/transcribe/async")
-            logger.info(f"Audio size being sent: {len(audio_base64)} bytes (base64)")
+            logger.info(f"Audio format: {audio_format}, MIME: {mime_type}")
+            logger.info(f"Audio size: {len(audio_data)} bytes, Base64: {len(audio_base64)} bytes")
+
+            # Log to console
+            console.log(f"Sending {audio_format} audio ({len(audio_data)} bytes) to Voicegain", session_id=session_id)
+            console.log(f"MIME type: {mime_type}", level="DEBUG", session_id=session_id)
 
             response = requests.post(
-                f"{self.base_url}/asr/transcribe/async",  # Changed to transcribe/async
+                f"{self.base_url}/asr/transcribe/async",
                 headers=self.headers,
                 json=request_body
             )
 
             logger.info(f"Voicegain response status: {response.status_code}")
+            console.log(f"Voicegain API response: {response.status_code}",
+                       level="SUCCESS" if response.status_code in [200, 201, 202] else "ERROR",
+                       session_id=session_id)
 
             if response.status_code not in [200, 201, 202]:
-                logger.error(f"Async start failed: {response.status_code}")
-                logger.error(f"Response body: {response.text[:500]}")
+                error_msg = f"Async start failed: {response.status_code} - {response.text[:500]}"
+                logger.error(error_msg)
+                console.log(error_msg, level="ERROR", session_id=session_id)
                 return [], []
 
             result = response.json()
             logger.info(f"Async request accepted: {json.dumps(result, indent=2)[:500]}")
+            console.log("Async transcription started successfully", level="SUCCESS", session_id=session_id)
 
             # Get session ID
+            transcription_session_id = None
             if "sessions" in result and len(result["sessions"]) > 0:
-                session_id = result["sessions"][0].get("sessionId")
+                transcription_session_id = result["sessions"][0].get("sessionId")
             else:
-                session_id = result.get("sessionId")
+                transcription_session_id = result.get("sessionId")
 
-            if not session_id:
-                logger.error(f"No session ID in response: {result}")
+            if not transcription_session_id:
+                error_msg = f"No session ID in response: {json.dumps(result, indent=2)}"
+                logger.error(error_msg)
+                console.log("No session ID received from Voicegain", level="ERROR", session_id=session_id)
+                console.log(f"Response: {json.dumps(result)[:200]}", level="DEBUG", session_id=session_id)
                 return [], []
 
-            logger.info(f"Started async transcription: {session_id}")
+            logger.info(f"Started async transcription: {transcription_session_id}")
+            console.log(f"Polling session: {transcription_session_id}", session_id=session_id)
 
             # Poll for results
-            return self._poll_and_parse(session_id, progress_callback)
+            return self._poll_and_parse(transcription_session_id, progress_callback, session_id)
 
         except Exception as e:
             logger.error(f"Async transcription error: {e}")
             return [], []
 
 
-    def _poll_and_parse(self, session_id: str, progress_callback: Optional[callable] = None) -> Tuple[List[Dict], List[Dict]]:
+    def _poll_and_parse(self, transcription_session_id: str, progress_callback: Optional[callable] = None,
+                        console_session_id: str = None) -> Tuple[List[Dict], List[Dict]]:
         """
         Poll for async results and parse them
         """
-        poll_url = f"{self.base_url}/asr/transcribe/{session_id}"
+        poll_url = f"{self.base_url}/asr/transcribe/{transcription_session_id}"
         max_attempts = 120
 
         for i in range(max_attempts):
@@ -291,7 +340,10 @@ class VoicegainTranscriber:
                 response = requests.get(poll_url, headers=self.headers)
 
                 if response.status_code == 404:
-                    logger.debug(f"Poll {i}: Not ready yet")
+                    if i % 10 == 0:  # Log every 10th attempt
+                        logger.debug(f"Poll {i}: Not ready yet")
+                        if console_session_id:
+                            console.log(f"Polling... attempt {i}/120", level="DEBUG", session_id=console_session_id)
                     continue  # Not ready yet
 
                 if response.status_code != 200:
@@ -304,7 +356,18 @@ class VoicegainTranscriber:
                 if result.get("result", {}).get("final", False):
                     logger.info(f"Transcription complete after {i} polls")
                     logger.info(f"Result structure: {json.dumps(result, indent=2)[:1000]}")
-                    return self._parse_async_results(result)
+
+                    if console_session_id:
+                        console.log(f"Transcription complete after {i} polls", level="SUCCESS", session_id=console_session_id)
+
+                        # Log result preview
+                        if "result" in result and "alternatives" in result["result"]:
+                            alts = result["result"]["alternatives"]
+                            if alts and "utterance" in alts[0]:
+                                preview = alts[0]["utterance"][:200]
+                                console.log(f"Transcript preview: {preview}...", session_id=console_session_id)
+
+                    return self._parse_async_results(result, console_session_id)
 
                 if progress_callback and i % 5 == 0:
                     progress_callback(f"Processing... ({i}/{max_attempts})")
@@ -390,7 +453,7 @@ class VoicegainTranscriber:
 
         return segments, list(speakers.values())
 
-    def _parse_async_results(self, result: Dict) -> Tuple[List[Dict], List[Dict]]:
+    def _parse_async_results(self, result: Dict, console_session_id: str = None) -> Tuple[List[Dict], List[Dict]]:
         """Parse async transcription results"""
         segments = []
         speakers = {}
