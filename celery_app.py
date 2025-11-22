@@ -10,16 +10,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Redis configuration
+REDIS_URL = os.getenv('REDIS_URL')
+print(f"Environment REDIS_URL: {REDIS_URL}")
 
-# Import Redis configuration helper
-from src.redis_config import get_redis_url
-
-# Redis configuration - handles Railway's various formats
-REDIS_URL = get_redis_url()
 if not REDIS_URL:
-    print("WARNING: No Redis configuration found, using fallback")
+    print("WARNING: REDIS_URL environment variable is not set!")
     REDIS_URL = 'redis://localhost:6379/0'
 
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', REDIS_URL)

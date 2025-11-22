@@ -49,8 +49,8 @@ try:
     import redis
     import time
 
-    # Get Redis URL from environment (handles Railway's various formats)
-    redis_url = get_redis_url()
+    # Get Redis URL from environment
+    redis_url = os.getenv('REDIS_URL')
     max_retries = 3
     retry_delay = 2
 
