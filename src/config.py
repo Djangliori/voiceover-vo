@@ -42,7 +42,7 @@ class Config:
     SPEAKER_MERGE_PAUSE = float(os.getenv('SPEAKER_MERGE_PAUSE', 1.5))  # Seconds between segments to merge
 
     # TTS Settings
-    TTS_PROVIDER = os.getenv('TTS_PROVIDER', 'elevenlabs')  # 'elevenlabs' or 'gemini'
+    TTS_PROVIDER = os.getenv('TTS_PROVIDER', 'gemini')  # 'gemini' or 'elevenlabs'
 
     # Directories
     OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'output')
