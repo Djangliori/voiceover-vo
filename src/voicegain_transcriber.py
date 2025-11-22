@@ -307,8 +307,7 @@ class VoicegainTranscriber:
                         "incremental": []
                     },
                     "poll": {
-                        "afterlife": 300000,  # Keep results for 5 minutes after completion
-                        "persist": 0  # Don't persist to storage
+                        "persist": 600000  # Keep results for 10 minutes after completion
                     }
                 }],
                 "audio": {
@@ -358,21 +357,17 @@ class VoicegainTranscriber:
             console.log("Async transcription started successfully", level="SUCCESS", session_id=session_id)
 
             # Get session ID and poll URL from response
-            session_data = None
-            if "sessions" in result and len(result["sessions"]) > 0:
-                session_data = result["sessions"][0]
-            else:
-                session_data = result
+            # Per Voicegain docs: poll URL is at sessions[0]["poll"]["url"]
+            if "sessions" not in result or len(result["sessions"]) == 0:
+                logger.error(f"No sessions in response: {json.dumps(result)[:500]}")
+                return [], []
 
+            session_data = result["sessions"][0]
             transcription_session_id = session_data.get("sessionId")
-            # Use the sessionUrl or poll.url from response - Voicegain provides the correct URL
-            poll_url = session_data.get("sessionUrl") or session_data.get("poll", {}).get("url")
+            # IMPORTANT: Poll URL is at poll.url, NOT sessionUrl!
+            poll_url = session_data.get("poll", {}).get("url")
 
-            if not poll_url:
-                # Fallback to constructing URL
-                poll_url = f"{self.base_url}/asr/transcribe/{transcription_session_id}"
-
-            if not transcription_session_id:
+            if not poll_url or not transcription_session_id:
                 error_msg = f"No session ID in response: {json.dumps(result, indent=2)}"
                 logger.error(error_msg)
                 console.log("No session ID received from Voicegain", level="ERROR", session_id=session_id)
@@ -405,17 +400,17 @@ class VoicegainTranscriber:
 
         for i in range(max_attempts):
             try:
-                time.sleep(2 if i > 0 else 0)  # Wait before polling
+                time.sleep(5 if i > 0 else 0)  # Wait 5 seconds between polls (per Voicegain example)
 
-                # First poll for progress (without ?full=true)
-                response = requests.get(poll_url, headers=self.headers)
+                # Poll with ?full=false to check progress (per Voicegain docs)
+                response = requests.get(f"{poll_url}?full=false", headers=self.headers)
 
                 if response.status_code == 404:
-                    if i % 10 == 0:  # Log every 10th attempt
-                        logger.debug(f"Poll {i}: Not ready yet")
+                    if i % 10 == 0:
+                        logger.debug(f"Poll {i}: Not ready yet (404)")
                         if console_session_id:
                             console.log(f"Polling... attempt {i}/120", level="DEBUG", session_id=console_session_id)
-                    continue  # Not ready yet
+                    continue
 
                 if response.status_code != 200:
                     logger.warning(f"Poll {i}: Status {response.status_code} - {response.text[:500]}")
@@ -423,17 +418,15 @@ class VoicegainTranscriber:
 
                 result = response.json()
 
-                # Check if done - NOTE: 'final' is under 'session', not 'result'!
-                session_data = result.get("session", {})
-                session_final = session_data.get("final", False)
+                # Check if done - per Voicegain docs, 'final' is under 'result', not 'session'!
+                result_final = result.get("result", {}).get("final", False)
 
                 # Log poll response for debugging
-                if i == 0 or i % 5 == 0 or session_final:
-                    logger.info(f"Poll {i}: keys={list(result.keys())}, session.final={session_final}")
-                    if session_data:
-                        logger.info(f"Poll {i} session data: {json.dumps(session_data)[:500]}")
+                if i == 0 or i % 5 == 0 or result_final:
+                    logger.info(f"Poll {i}: keys={list(result.keys())}, result.final={result_final}")
+                    logger.info(f"Poll {i} result: {json.dumps(result.get('result', {}))[:500]}")
 
-                if session_final:
+                if result_final:
                     logger.info(f"Session marked as final after {i} polls, fetching full transcript...")
 
                     # NOW fetch with ?full=true to get the actual transcript
