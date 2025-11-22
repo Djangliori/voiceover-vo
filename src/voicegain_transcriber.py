@@ -109,6 +109,10 @@ class VoicegainTranscriber:
                     "content": {
                         "incremental": ["words"],
                         "full": ["words", "transcript"]
+                    },
+                    "diarization": {
+                        "enable": True,
+                        "speakerCount": None  # Auto-detect number of speakers
                     }
                 }],
                 "audio": {
@@ -123,10 +127,6 @@ class VoicegainTranscriber:
                         "languages": ["en-US"],
                         "sensitivity": 0.5,
                         "speedVsAccuracy": 0.5
-                    },
-                    "diarization": {
-                        "enable": True,
-                        "speakerCount": None  # Auto-detect number of speakers
                     }
                 }
             }
