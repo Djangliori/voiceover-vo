@@ -623,6 +623,36 @@ def debug_video(video_id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/console/<video_id>')
+def console_viewer(video_id):
+    """Display console logs for a video"""
+    return render_template('console.html', video_id=video_id)
+
+
+@app.route('/api/logs/<video_id>')
+def get_console_logs(video_id):
+    """Get console logs for a specific video processing job"""
+    from src.console_logger import console
+
+    try:
+        logs = console.get_logs(session_id=video_id, last_n=200)
+        formatted = console.format_for_display(logs)
+
+        return jsonify({
+            'success': True,
+            'video_id': video_id,
+            'logs': logs,
+            'formatted': formatted,
+            'count': len(logs)
+        })
+    except Exception as e:
+        logger.error(f"Error fetching console logs: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @app.route('/api/usage-stats', methods=['GET'])
 def api_usage_stats():
     """Get API usage statistics"""

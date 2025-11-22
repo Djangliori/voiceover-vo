@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Processing Console - {{ video_id }}</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1e1e1e;
+            color: #00ff00;
+            margin: 0;
+            padding: 20px;
+        }
+        .console {
+            background: #000;
+            border: 1px solid #333;
+            border-radius: 5px;
+            padding: 15px;
+            height: 80vh;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        .header {
+            color: #fff;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .log-entry {
+            margin: 2px 0;
+        }
+        .log-error { color: #ff4444; }
+        .log-warning { color: #ffaa00; }
+        .log-success { color: #00ff00; }
+        .log-info { color: #00aaff; }
+        .log-debug { color: #888; }
+        .refresh-btn {
+            background: #333;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 10px 20px;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+        .refresh-btn:hover {
+            background: #444;
+        }
+        .auto-scroll {
+            margin-left: 10px;
+        }
+        .timestamp {
+            color: #666;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Processing Console - Video: {{ video_id }}</h1>
+        <div>
+            <label class="auto-scroll">
+                <input type="checkbox" id="autoScroll" checked> Auto-scroll
+            </label>
+            <button class="refresh-btn" onclick="refreshLogs()">Refresh</button>
+        </div>
+    </div>
+
+    <div id="console" class="console">
+        Loading logs...
+    </div>
+
+    <script>
+        const videoId = '{{ video_id }}';
+        let autoScroll = true;
+
+        document.getElementById('autoScroll').addEventListener('change', (e) => {
+            autoScroll = e.target.checked;
+        });
+
+        function formatLog(log) {
+            const time = log.timestamp.split('T')[1].split('.')[0];
+            let className = 'log-info';
+
+            if (log.level === 'ERROR') className = 'log-error';
+            else if (log.level === 'WARNING') className = 'log-warning';
+            else if (log.level === 'SUCCESS') className = 'log-success';
+            else if (log.level === 'DEBUG') className = 'log-debug';
+
+            let icon = 'ℹ️';
+            if (log.level === 'ERROR') icon = '❌';
+            else if (log.level === 'WARNING') icon = '⚠️';
+            else if (log.level === 'SUCCESS') icon = '✅';
+            else if (log.level === 'DEBUG') icon = '🔍';
+
+            return `<div class="log-entry ${className}">` +
+                   `<span class="timestamp">[${time}]</span>` +
+                   `${icon} ${log.message}</div>`;
+        }
+
+        async function refreshLogs() {
+            try {
+                const response = await fetch(`/api/logs/${videoId}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    const console = document.getElementById('console');
+
+                    if (data.logs && data.logs.length > 0) {
+                        console.innerHTML = data.logs.map(log => formatLog(log)).join('');
+                    } else {
+                        console.innerHTML = '<div class="log-entry">No logs available yet...</div>';
+                    }
+
+                    if (autoScroll) {
+                        console.scrollTop = console.scrollHeight;
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching logs:', error);
+            }
+        }
+
+        // Initial load
+        refreshLogs();
+
+        // Auto-refresh every 2 seconds
+        setInterval(refreshLogs, 2000);
+    </script>
+</body>
+</html>

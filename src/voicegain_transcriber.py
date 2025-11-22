@@ -12,6 +12,7 @@ import tempfile
 import subprocess
 from typing import List, Dict, Optional, Tuple
 from src.logging_config import get_logger
+from src.console_logger import console, log_api_call
 
 logger = get_logger(__name__)
 
@@ -73,6 +74,13 @@ class VoicegainTranscriber:
             logger.info(f"Format: {audio_format}")
             logger.info(f"Size: {file_size_mb:.2f} MB")
             logger.info("="*60)
+
+            # Also log to console
+            session_id = audio_path.split('/')[-1].split('_')[0] if '/' in audio_path else 'unknown'
+            console.log("="*60, session_id=session_id)
+            console.log("VOICEGAIN TRANSCRIPTION START", level="INFO", session_id=session_id)
+            console.log(f"Audio: {audio_path}", session_id=session_id)
+            console.log(f"Format: {audio_format}, Size: {file_size_mb:.2f} MB", session_id=session_id)
 
             # Use async for all files - it supports MP3/M4A directly
             # No need to convert to WAV!
