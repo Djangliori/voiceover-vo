@@ -120,17 +120,10 @@ class VoicegainTranscriber:
                 },
                 "settings": {
                     "asr": {
-                        "acousticModel": "VoiceGain-omega-x",
                         "languages": ["en-US"],
                         "sensitivity": 0.5,
                         "speedVsAccuracy": 0.5
                     },
-                    "formatters": [{
-                        "type": "basic",
-                        "parameters": {
-                            "enabled": True
-                        }
-                    }],
                     "diarization": {
                         "enable": True,
                         "speakerCount": None  # Auto-detect number of speakers
