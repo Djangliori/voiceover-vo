@@ -251,17 +251,22 @@ class VoicegainTranscriber:
 
             logger.info(f"Created data object with UUID: {data_uuid}")
 
-            # Now upload the file content
+            # Now upload the file content using multipart form data
             upload_headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/octet-stream"
+                "Authorization": f"Bearer {self.api_key}"
+                # Don't set Content-Type - requests will set it for multipart
             }
 
+            # Upload as multipart form data
+            filename = os.path.basename(audio_path)
             with open(audio_path, 'rb') as audio_file:
-                upload_response = requests.put(
+                files = {
+                    'file': (filename, audio_file, 'audio/mpeg')
+                }
+                upload_response = requests.post(
                     f"{self.base_url}/data/{data_uuid}/file",
                     headers=upload_headers,
-                    data=audio_file
+                    files=files
                 )
 
             if upload_response.status_code not in [200, 201, 204]:
