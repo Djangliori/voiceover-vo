@@ -160,8 +160,22 @@ class GeminiTextToSpeech:
         """
         text = segment['translated_text']
 
-        # Synthesize speech using Gemini TTS
-        audio_content = self._synthesize_speech(text)
+        try:
+            # Synthesize speech using Gemini TTS
+            audio_content = self._synthesize_speech(text)
+        except Exception as e:
+            error_str = str(e).lower()
+            # Check if this is a content blocked error
+            if 'sensitive' in error_str or 'harmful' in error_str or 'content' in error_str:
+                logger.warning(f"Segment {index} blocked by content filter, generating silence: {text[:50]}...")
+                # Generate silence for the expected duration of this segment
+                duration = segment.get('end', 0) - segment.get('start', 0)
+                if duration <= 0:
+                    duration = 2.0  # Default 2 seconds
+                audio_content = self._generate_silence(duration)
+            else:
+                # Re-raise non-content-filter errors
+                raise
 
         # Save to WAV file (Gemini outputs LINEAR16 which is WAV-compatible)
         wav_filename = f"segment_{index:04d}.wav"
@@ -179,6 +193,44 @@ class GeminiTextToSpeech:
         voiceover_segment['audio_duration'] = duration
 
         return voiceover_segment
+
+    def _generate_silence(self, duration_seconds):
+        """
+        Generate silent WAV audio for the specified duration
+
+        Args:
+            duration_seconds: Duration in seconds
+
+        Returns:
+            bytes: WAV audio content
+        """
+        import struct
+
+        sample_rate = 44100
+        num_samples = int(sample_rate * duration_seconds)
+
+        # WAV header for 16-bit mono PCM
+        wav_header = struct.pack(
+            '<4sI4s4sIHHIIHH4sI',
+            b'RIFF',
+            36 + num_samples * 2,  # File size - 8
+            b'WAVE',
+            b'fmt ',
+            16,  # Subchunk1 size
+            1,   # Audio format (PCM)
+            1,   # Num channels (mono)
+            sample_rate,
+            sample_rate * 2,  # Byte rate
+            2,   # Block align
+            16,  # Bits per sample
+            b'data',
+            num_samples * 2  # Data size
+        )
+
+        # Generate silence (all zeros)
+        silence_data = b'\x00' * (num_samples * 2)
+
+        return wav_header + silence_data
 
     def _synthesize_speech(self, text, prompt=None):
         """
