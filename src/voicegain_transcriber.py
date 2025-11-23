@@ -504,10 +504,15 @@ class VoicegainTranscriber:
 
             # Extract transcript with timing and speaker info
             multi_channel_words = data.get("multiChannelWords", [])
+            logger.info(f"multiChannelWords has {len(multi_channel_words)} sections")
 
-            for section in multi_channel_words:
+            for section_idx, section in enumerate(multi_channel_words):
                 words = section.get("words", [])
                 channel_idx = section.get("channel", 0)
+
+                # Debug: log what keys are in each section
+                if section_idx < 5:  # First 5 sections
+                    logger.info(f"Section {section_idx} keys: {section.keys()}, channel={channel_idx}")
 
                 if not words:
                     continue
