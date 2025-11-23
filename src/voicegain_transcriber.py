@@ -478,10 +478,13 @@ class VoicegainTranscriber:
             channel_to_speaker = {}  # Map channel index to speaker key
 
             # Extract channel info (speaker, gender, age)
+            # Create a mapping from spk ID to speaker info
+            spk_to_speaker = {}  # Map spk ID (1, 2, etc.) to speaker_key
+
             channels = data.get("channels", [])
             for i, channel in enumerate(channels):
-                speaker_id = channel.get("spk", str(i))
-                speaker_key = f"speaker_{speaker_id}"
+                spk_id = channel.get("spk", i)  # spk is the speaker ID (1, 2, etc.)
+                speaker_key = f"speaker_{spk_id}"
                 channel_id = channel.get("channelId", i)
 
                 gender = channel.get("gender", "unknown")
@@ -494,12 +497,15 @@ class VoicegainTranscriber:
                     "age": age.lower() if age else "unknown"
                 }
 
-                # Map both channel index and channelId to speaker
+                # Map spk ID to speaker key (this is what words use!)
+                spk_to_speaker[spk_id] = speaker_key
+                # Also map channel index and channelId for fallback
                 channel_to_speaker[i] = speaker_key
                 channel_to_speaker[channel_id] = speaker_key
 
-                logger.info(f"Channel {i} (channelId={channel_id}): speaker={speaker_id}, gender={gender}, age={age}")
+                logger.info(f"Channel {i} (channelId={channel_id}, spk={spk_id}): gender={gender}, age={age}")
 
+            logger.info(f"SPK to speaker mapping: {spk_to_speaker}")
             logger.info(f"Channel to speaker mapping: {channel_to_speaker}")
 
             # Extract transcript with timing and speaker info
@@ -510,23 +516,25 @@ class VoicegainTranscriber:
                 words = section.get("words", [])
                 channel_idx = section.get("channel", 0)
 
-                # Debug: log what keys are in each section
-                if section_idx < 5:  # First 5 sections
-                    logger.info(f"Section {section_idx} keys: {section.keys()}, channel={channel_idx}")
-
                 if not words:
                     continue
 
                 # Build segment from words
+                # Each word has its own spk field - use the first word's spk
                 text_parts = []
                 start_time = None
                 end_time = None
+                word_spk = None  # Speaker ID from the word itself
 
                 for word in words:
                     utterance = word.get("utterance", "")
                     word_start = word.get("start", 0) / 1000.0  # ms to seconds
                     word_duration = word.get("duration", 100) / 1000.0
                     word_end = word_start + word_duration
+
+                    # Get speaker from word's spk field (each word has speaker info!)
+                    if word_spk is None:
+                        word_spk = word.get("spk")
 
                     if utterance:
                         text_parts.append(utterance)
@@ -535,11 +543,18 @@ class VoicegainTranscriber:
                         end_time = word_end
 
                 if text_parts:
-                    # Determine speaker from channel using our mapping
-                    speaker_key = channel_to_speaker.get(channel_idx)
-                    if not speaker_key:
+                    # Use spk from word (primary), then fall back to channel mapping
+                    if word_spk is not None and word_spk in spk_to_speaker:
+                        speaker_key = spk_to_speaker[word_spk]
+                    elif channel_idx in channel_to_speaker:
+                        speaker_key = channel_to_speaker[channel_idx]
+                    else:
                         speaker_key = list(speakers.keys())[0] if speakers else "speaker_0"
-                        logger.warning(f"No speaker mapping for channel {channel_idx}, using {speaker_key}")
+                        logger.warning(f"No speaker mapping for spk={word_spk} or channel={channel_idx}, using {speaker_key}")
+
+                    # Debug: log speaker assignment for first few segments
+                    if section_idx < 5:
+                        logger.info(f"Section {section_idx}: word_spk={word_spk} -> {speaker_key}")
 
                     segments.append({
                         "text": " ".join(text_parts),
