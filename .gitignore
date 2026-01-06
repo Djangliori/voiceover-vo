@@ -69,3 +69,9 @@ dump.rdb
 # OS
 .DS_Store
 Thumbs.db
+
+# Backup and test files
+.env.backup
+.env.test
+*google-credentials*.json
+shmyoutube-*.json
