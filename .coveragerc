@@ -1,0 +1,96 @@
+# Coverage.py Configuration
+# https://coverage.readthedocs.io/en/latest/config.html
+
+[run]
+# Measure branch coverage in addition to statement coverage
+branch = True
+
+# Source code directories to measure
+source =
+    src
+    app.py
+    celery_app.py
+
+# Files/directories to omit from coverage
+omit =
+    */tests/*
+    */test_*.py
+    */__pycache__/*
+    */venv/*
+    */env/*
+    */.venv/*
+    */site-packages/*
+    */migrations/*
+    */debug_*.py
+    */check_*.py
+    setup.py
+
+# Plugins to use
+plugins =
+
+[report]
+# Show missing lines in coverage report
+show_missing = True
+
+# Skip files with 100% coverage in report
+skip_covered = False
+
+# Ignore errors from source files
+ignore_errors = False
+
+# Precision for coverage percentage
+precision = 2
+
+# Sort report by coverage percentage (descending)
+sort = Cover
+
+# Exclude lines from coverage (using regex)
+exclude_lines =
+    # Standard pragma
+    pragma: no cover
+
+    # Don't complain about missing debug code
+    def __repr__
+    if self\.debug
+    if settings\.DEBUG
+
+    # Don't complain if tests don't hit defensive assertion code
+    raise AssertionError
+    raise NotImplementedError
+
+    # Don't complain if non-runnable code isn't run
+    if 0:
+    if False:
+    if __name__ == .__main__.:
+
+    # Type checking code
+    if TYPE_CHECKING:
+    if typing.TYPE_CHECKING:
+
+    # Abstract methods
+    @(abc\.)?abstractmethod
+
+    # Pass statements
+    pass
+
+    # Ellipsis
+    \.\.\.
+
+[html]
+# Directory for HTML report
+directory = htmlcov
+
+# Title for HTML report
+title = Georgian Voiceover App - Coverage Report
+
+[xml]
+# Output file for XML report (for CI/CD)
+output = coverage.xml
+
+[json]
+# Output file for JSON report
+output = coverage.json
+# Pretty print the JSON
+pretty_print = True
+# Show execution context
+show_contexts = True

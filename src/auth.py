@@ -17,6 +17,9 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 # Initialize database
 db = Database()
 
+# Import rate limiter (initialized in app.py)
+from src.rate_limit_config import limiter
+
 
 def login_required(f):
     """Decorator to require login for a route"""
@@ -63,21 +66,64 @@ def get_current_user():
     return db.get_user_by_id(session['user_id'])
 
 
+def validate_password_strength(password):
+    """
+    Validate password meets security requirements.
+
+    Requirements:
+    - Minimum 12 characters
+    - At least one uppercase letter
+    - At least one lowercase letter
+    - At least one digit
+    - At least one special character
+
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    if len(password) < 12:
+        return False, 'Password must be at least 12 characters long'
+
+    if not any(c.isupper() for c in password):
+        return False, 'Password must contain at least one uppercase letter'
+
+    if not any(c.islower() for c in password):
+        return False, 'Password must contain at least one lowercase letter'
+
+    if not any(c.isdigit() for c in password):
+        return False, 'Password must contain at least one number'
+
+    special_chars = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+    if not any(c in special_chars for c in password):
+        return False, 'Password must contain at least one special character (!@#$%^&*...)'
+
+    return True, None
+
+
 @auth_bp.route('/register', methods=['POST'])
+@limiter.limit("5 per hour")
+@limiter.limit("10 per day")
 def register():
-    """Register a new user"""
+    """
+    Register a new user.
+
+    Rate limited to prevent abuse:
+    - 5 registration attempts per hour per IP
+    - 10 registration attempts per day per IP
+    """
     try:
         data = request.json
         email = data.get('email', '').strip().lower()
         password = data.get('password', '')
         name = data.get('name', '').strip()
 
-        # Validation
+        # Email validation
         if not email or '@' not in email:
             return jsonify({'error': 'Valid email required'}), 400
 
-        if len(password) < 6:
-            return jsonify({'error': 'Password must be at least 6 characters'}), 400
+        # Password strength validation
+        is_valid, error_msg = validate_password_strength(password)
+        if not is_valid:
+            return jsonify({'error': error_msg}), 400
 
         # Create user (defaults to free tier)
         user = db.create_user(email=email, password=password, name=name, tier_name='free')
@@ -102,8 +148,16 @@ def register():
 
 
 @auth_bp.route('/login', methods=['POST'])
+@limiter.limit("10 per hour")
+@limiter.limit("30 per day")
 def login():
-    """Login user"""
+    """
+    Login user.
+
+    Rate limited to prevent brute force attacks:
+    - 10 login attempts per hour per IP
+    - 30 login attempts per day per IP
+    """
     try:
         data = request.json
         email = data.get('email', '').strip().lower()
@@ -216,14 +270,40 @@ def admin_get_tiers():
 
 
 def init_admin_user():
-    """Initialize the default admin user if not exists"""
+    """
+    Initialize the default admin user if not exists.
+
+    Admin credentials MUST be set via environment variables:
+    - ADMIN_EMAIL: Admin user email
+    - ADMIN_PASSWORD: Admin user password (minimum 12 characters)
+    - ADMIN_NAME: Admin user display name (optional, defaults to 'Admin')
+
+    SECURITY: Never hardcode credentials in source code!
+    """
     try:
-        admin_email = 'levan@sarke.ge'
-        admin_password = 'levan0488'
+        # Get admin credentials from environment variables
+        admin_email = os.getenv('ADMIN_EMAIL')
+        admin_password = os.getenv('ADMIN_PASSWORD')
+        admin_name = os.getenv('ADMIN_NAME', 'Admin')
+
+        # Validate that credentials are provided
+        if not admin_email or not admin_password:
+            logger.warning(
+                "Admin user initialization skipped: ADMIN_EMAIL and ADMIN_PASSWORD "
+                "environment variables must be set to create admin user"
+            )
+            return
+
+        # Validate password strength
+        if len(admin_password) < 12:
+            logger.error(
+                "Admin user initialization failed: ADMIN_PASSWORD must be at least 12 characters"
+            )
+            raise ValueError("Admin password must be at least 12 characters")
 
         existing = db.get_user_by_email(admin_email)
         if existing:
-            logger.info("Admin user already exists")
+            logger.info(f"Admin user already exists: {admin_email}")
             return
 
         # Initialize tiers first
@@ -233,9 +313,9 @@ def init_admin_user():
         db.create_admin_user(
             email=admin_email,
             password=admin_password,
-            name='Levan (Admin)'
+            name=admin_name
         )
-        logger.info(f"Admin user created: {admin_email}")
+        logger.info(f"Admin user created successfully: {admin_email}")
 
     except Exception as e:
         logger.error(f"Failed to initialize admin user: {e}", exc_info=True)

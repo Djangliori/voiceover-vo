@@ -1,0 +1,30 @@
+# Development and Testing Dependencies
+
+# Testing Framework
+pytest==7.4.3
+pytest-cov==4.1.0              # Code coverage
+pytest-mock==3.12.0            # Mocking support
+pytest-asyncio==0.21.1         # Async test support
+pytest-xdist==3.5.0            # Parallel test execution
+
+# Test Fixtures and Utilities
+faker==20.1.0                  # Generate fake data for tests
+freezegun==1.4.0               # Mock datetime
+responses==0.24.1              # Mock HTTP requests
+
+# Code Quality
+black==23.12.1                 # Code formatter
+flake8==6.1.0                  # Linter
+pylint==3.0.3                  # Advanced linter
+mypy==1.7.1                    # Type checking
+isort==5.13.2                  # Import sorting
+
+# Security
+bandit==1.7.5                  # Security vulnerability scanner
+safety==2.3.5                  # Dependency vulnerability checker
+
+# Pre-commit hooks
+pre-commit==3.6.0
+
+# Coverage reporting
+coverage[toml]==7.3.4

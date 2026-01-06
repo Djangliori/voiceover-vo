@@ -5,11 +5,12 @@ Tracks processed videos, users, and usage
 
 import os
 from datetime import datetime
-from sqlalchemy import create_engine, Column, String, DateTime, Integer, Boolean, Float, ForeignKey, Text
+from sqlalchemy import create_engine, Column, String, DateTime, Integer, Boolean, Float, ForeignKey, Text, Index
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, scoped_session, relationship
+from sqlalchemy.orm import sessionmaker, scoped_session, relationship, joinedload
 from werkzeug.security import generate_password_hash, check_password_hash
 from src.logging_config import get_logger
+from src.cache import cached, invalidate_cache
 
 logger = get_logger(__name__)
 
@@ -26,14 +27,22 @@ class Video(Base):
     original_url = Column(String(500))
     r2_url = Column(String(500))  # Cloudflare R2 storage URL
     duration = Column(Integer)  # Duration in seconds
-    processing_status = Column(String(50), default='processing')  # processing, completed, failed
+    processing_status = Column(String(50), default='processing', index=True)  # processing, completed, failed
     progress = Column(Integer, default=0)  # Progress percentage (0-100)
     status_message = Column(String(500))  # Current processing step message
     error_message = Column(Text)  # Use Text for long error messages
     debug_data = Column(Text)  # JSON: transcription, translation, TTS details for debugging
     created_at = Column(DateTime, default=datetime.utcnow)
-    completed_at = Column(DateTime)
-    view_count = Column(Integer, default=0)
+    completed_at = Column(DateTime, index=True)  # Index for recent videos query
+    view_count = Column(Integer, default=0, index=True)  # Index for popular videos query
+
+    # Composite indexes for common queries (defined after columns)
+    __table_args__ = (
+        # Index for get_recent_videos: WHERE processing_status='completed' ORDER BY completed_at DESC
+        Index('idx_status_completed_at', 'processing_status', 'completed_at'),
+        # Index for get_popular_videos: WHERE processing_status='completed' ORDER BY view_count DESC
+        Index('idx_status_view_count', 'processing_status', 'view_count'),
+    )
 
     def to_dict(self):
         """Convert model to dictionary"""
@@ -95,7 +104,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
 
     # Tier relationship
-    tier_id = Column(Integer, ForeignKey('tiers.id'), nullable=False)
+    tier_id = Column(Integer, ForeignKey('tiers.id'), nullable=False, index=True)  # Index for JOIN optimization
     tier = relationship("Tier", back_populates="users")
 
     # Usage tracking
@@ -204,7 +213,38 @@ class Database:
             safe_url = re.sub(r'://[^:]+:[^@]+@', '://***:***@', safe_url)
         logger.info(f"Database connection: {safe_url}")
 
-        self.engine = create_engine(database_url, pool_pre_ping=True)
+        # Connection pooling configuration
+        # Environment variables for fine-tuning (with sensible defaults)
+        pool_size = int(os.getenv('DB_POOL_SIZE', 10))  # Base connections in pool
+        max_overflow = int(os.getenv('DB_MAX_OVERFLOW', 20))  # Extra connections beyond pool_size
+        pool_timeout = int(os.getenv('DB_POOL_TIMEOUT', 30))  # Seconds to wait for connection
+        pool_recycle = int(os.getenv('DB_POOL_RECYCLE', 3600))  # Recycle connections after 1 hour
+
+        # Special handling for SQLite (doesn't support pooling the same way)
+        if database_url.startswith('sqlite:'):
+            logger.warning("SQLite detected - connection pooling disabled")
+            self.engine = create_engine(
+                database_url,
+                connect_args={'check_same_thread': False},  # SQLite specific
+                pool_pre_ping=True
+            )
+        else:
+            # PostgreSQL/MySQL - use full connection pooling
+            self.engine = create_engine(
+                database_url,
+                pool_size=pool_size,  # Number of connections to keep open
+                max_overflow=max_overflow,  # Additional connections beyond pool_size
+                pool_timeout=pool_timeout,  # Timeout for getting a connection
+                pool_recycle=pool_recycle,  # Recycle connections to prevent stale connections
+                pool_pre_ping=True,  # Verify connections before using
+                echo_pool=False,  # Set to True for pool debugging
+            )
+            logger.info(
+                f"Database connection pool configured: "
+                f"pool_size={pool_size}, max_overflow={max_overflow}, "
+                f"timeout={pool_timeout}s, recycle={pool_recycle}s"
+            )
+
         self.Session = scoped_session(sessionmaker(bind=self.engine))
 
         # Create tables
@@ -300,6 +340,96 @@ class Database:
         finally:
             self.close_session(session)
 
+    def get_or_create_video_atomic(self, video_id, title, original_url):
+        """
+        Atomically get or create a video record, preventing race conditions.
+
+        This method handles concurrent requests trying to process the same video:
+        1. Try to get existing video
+        2. If not found, try to create with status='processing'
+        3. If creation fails (IntegrityError due to unique constraint), retry get
+        4. Return (video, created, should_process) tuple
+
+        Args:
+            video_id: YouTube video ID
+            title: Video title (used only if creating)
+            original_url: Original YouTube URL
+
+        Returns:
+            Tuple of (video, created, should_process):
+                - video: Video object
+                - created: True if newly created, False if already existed
+                - should_process: True if caller should start processing, False otherwise
+        """
+        from sqlalchemy.exc import IntegrityError
+
+        session = self.get_session()
+        try:
+            # First attempt: Try to get existing video
+            video = session.query(Video).filter_by(video_id=video_id).with_for_update().first()
+
+            if video:
+                session.expunge(video)
+                self.close_session(session)
+
+                # Video exists - determine if we should process
+                if video.processing_status == 'completed':
+                    return (video, False, False)  # Already completed, don't process
+                elif video.processing_status == 'processing':
+                    return (video, False, False)  # Already processing, don't process
+                elif video.processing_status == 'failed':
+                    # Failed previously, allow retry - update status to processing
+                    self.update_video_status(video_id, 'processing')
+                    self.update_video_progress(video_id, "Retrying...", 0)
+                    return (video, False, True)  # Retry processing
+
+            # Video doesn't exist - try to create
+            try:
+                video = Video(
+                    video_id=video_id,
+                    title=title,
+                    original_url=original_url,
+                    processing_status='processing'
+                )
+                session.add(video)
+                session.commit()
+                session.refresh(video)
+                session.expunge(video)
+                self.close_session(session)
+                return (video, True, True)  # Created and should process
+
+            except IntegrityError:
+                # Race condition: Another request created it between our check and create
+                # Rollback and retry getting the video
+                session.rollback()
+                self.close_session(session)
+
+                # Retry: Get the video that was created by the other request
+                session = self.get_session()
+                video = session.query(Video).filter_by(video_id=video_id).first()
+                if video:
+                    session.expunge(video)
+                    self.close_session(session)
+                    # Don't process - another request is handling it
+                    return (video, False, False)
+                else:
+                    # This should never happen, but handle gracefully
+                    self.close_session(session)
+                    raise Exception(f"Failed to get or create video {video_id}")
+
+        except IntegrityError:
+            session.rollback()
+            self.close_session(session)
+            # Final fallback
+            video = self.get_video_by_id(video_id)
+            if video:
+                return (video, False, False)
+            raise Exception(f"Race condition handling failed for video {video_id}")
+        except Exception as e:
+            session.rollback()
+            self.close_session(session)
+            raise e
+
     def update_video_progress(self, video_id, status_message, progress):
         """
         Update video progress and status message
@@ -333,7 +463,7 @@ class Database:
 
     def update_video_status(self, video_id, status, error_message=None, r2_url=None):
         """
-        Update video processing status
+        Update video processing status and invalidate caches
 
         Args:
             video_id: YouTube video ID
@@ -355,6 +485,11 @@ class Database:
                     video.r2_url = r2_url
                 if status == 'completed':
                     video.completed_at = datetime.utcnow()
+
+                    # Invalidate video list caches when a video is completed
+                    invalidate_cache("videos:recent")
+                    invalidate_cache("videos:popular")
+
                 session.commit()
                 session.refresh(video)
             return video
@@ -366,7 +501,7 @@ class Database:
 
     def increment_view_count(self, video_id):
         """
-        Increment view count for a video
+        Increment view count for a video and invalidate popular cache
 
         Args:
             video_id: YouTube video ID
@@ -377,6 +512,9 @@ class Database:
             if video:
                 video.view_count += 1
                 session.commit()
+
+                # Invalidate popular videos cache (view count changed)
+                invalidate_cache("videos:popular")
         except Exception as e:
             session.rollback()
         finally:
@@ -422,15 +560,16 @@ class Database:
                 return None
         return None
 
+    @cached(ttl=300, namespace="videos:recent")  # Cache for 5 minutes
     def get_recent_videos(self, limit=20):
         """
-        Get recently processed videos
+        Get recently processed videos (cached for 5 minutes)
 
         Args:
             limit: Number of videos to return
 
         Returns:
-            List of Video objects
+            List of Video dictionaries (JSON-serializable)
         """
         session = self.get_session()
         try:
@@ -439,19 +578,22 @@ class Database:
                 .order_by(Video.completed_at.desc())\
                 .limit(limit)\
                 .all()
-            return videos
+
+            # Convert to dictionaries for caching
+            return [video.to_dict() for video in videos]
         finally:
             self.close_session(session)
 
+    @cached(ttl=300, namespace="videos:popular")  # Cache for 5 minutes
     def get_popular_videos(self, limit=20):
         """
-        Get most viewed videos
+        Get most viewed videos (cached for 5 minutes)
 
         Args:
             limit: Number of videos to return
 
         Returns:
-            List of Video objects
+            List of Video dictionaries (JSON-serializable)
         """
         session = self.get_session()
         try:
@@ -460,7 +602,9 @@ class Database:
                 .order_by(Video.view_count.desc())\
                 .limit(limit)\
                 .all()
-            return videos
+
+            # Convert to dictionaries for caching
+            return [video.to_dict() for video in videos]
         finally:
             self.close_session(session)
 
@@ -658,12 +802,19 @@ class Database:
             self.close_session(session)
 
     def get_all_users(self):
-        """Get all users (for admin)"""
+        """
+        Get all users (for admin) with eager loading to prevent N+1 queries.
+        Uses joinedload to fetch tier data in a single query.
+        """
         session = self.get_session()
         try:
-            users = session.query(User).all()
+            # Use joinedload to eagerly load tier relationship (prevents N+1)
+            users = session.query(User)\
+                .options(joinedload(User.tier))\
+                .all()
+
+            # Expunge from session to make objects independent
             for user in users:
-                _ = user.tier
                 session.expunge(user)
             return users
         finally:

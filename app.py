@@ -87,6 +87,40 @@ except Exception as e:
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
 
+# Security Configuration
+from flask_talisman import Talisman
+from src.rate_limit_config import init_rate_limiter
+
+# Flask-Talisman for HTTPS enforcement and security headers
+# Only enforce HTTPS in production
+if os.getenv('FLASK_ENV') == 'production':
+    Talisman(
+        app,
+        force_https=True,
+        strict_transport_security=True,
+        strict_transport_security_max_age=31536000,  # 1 year
+        content_security_policy={
+            'default-src': "'self'",
+            'script-src': ["'self'", "'unsafe-inline'", 'cdn.jsdelivr.net'],
+            'style-src': ["'self'", "'unsafe-inline'"],
+            'img-src': ["'self'", 'data:', 'https:'],
+            'font-src': ["'self'", 'data:'],
+        },
+        content_security_policy_nonce_in=['script-src'],
+        feature_policy={
+            'geolocation': "'none'",
+            'camera': "'none'",
+            'microphone': "'none'",
+        }
+    )
+    logger.info("Security: Flask-Talisman enabled (HTTPS enforcement)")
+else:
+    logger.warning("Security: Flask-Talisman disabled (development mode)")
+
+# Initialize Rate Limiting
+limiter = init_rate_limiter(app)
+logger.info(f"Security: Rate limiting enabled (storage: {'Redis' if os.getenv('REDIS_URL') else 'memory'})")
+
 # Configuration from central config
 app.config['OUTPUT_DIR'] = Config.OUTPUT_DIR
 app.config['TEMP_DIR'] = Config.TEMP_DIR
@@ -155,10 +189,8 @@ def inject_user():
 # Store Celery task IDs mapped to video IDs (Celery mode)
 task_id_map = {}  # video_id -> celery_task_id
 
-# Store processing status for threading mode with thread safety
-processing_status = {}  # video_id -> status_dict
-processing_status_lock = threading.Lock()  # Protect against race conditions
-
+# Import distributed status tracker (Redis-based with in-memory fallback)
+from src.status_tracker import status_tracker
 
 # Import the consolidated extract_video_id from validators
 from src.validators import extract_video_id
@@ -182,12 +214,11 @@ def process_video_threading(video_id, youtube_url, user_id=None):
 
     try:
         def update_status(message, progress=None):
-            with processing_status_lock:
-                processing_status[video_id] = {
-                    'status': message,
-                    'progress': progress or 0,
-                    'video_id': video_id
-                }
+            status_tracker.update_status(video_id, {
+                'status': message,
+                'progress': progress or 0,
+                'video_id': video_id
+            })
             logger.info("processing_progress", video_id=video_id, status=message, progress=progress or 0)
 
         # Initialize components
@@ -288,10 +319,11 @@ def process_video_threading(video_id, youtube_url, user_id=None):
             except Exception as charge_err:
                 logger.error(f"Failed to charge user {user_id}: {charge_err}")
 
-        with processing_status_lock:
-            processing_status[video_id]['complete'] = True
-            processing_status[video_id]['r2_url'] = r2_url
-            processing_status[video_id]['title'] = video_title
+        status_tracker.merge_status(video_id, {
+            'complete': True,
+            'r2_url': r2_url,
+            'title': video_title
+        })
 
         # Cleanup temporary files
         downloader.cleanup(video_id)
@@ -299,13 +331,12 @@ def process_video_threading(video_id, youtube_url, user_id=None):
     except Exception as e:
         error_msg = str(e)
         logger.error("processing_error", video_id=video_id, error=error_msg, exc_info=True)
-        with processing_status_lock:
-            processing_status[video_id] = {
-                'status': f"Error: {error_msg}",
-                'error': error_msg,
-                'complete': False,
-                'progress': 0
-            }
+        status_tracker.update_status(video_id, {
+            'status': f"Error: {error_msg}",
+            'error': error_msg,
+            'complete': False,
+            'progress': 0
+        })
         db.update_video_status(video_id, 'failed', error_message=error_msg)
 
 
@@ -422,45 +453,53 @@ def process_video():
         except ValidationError as ve:
             return jsonify({'error': ve.message}), ve.status_code
 
-        # Check if already processed or in progress
-        video = db.get_video_by_id(video_id)
-        if video:
-            if video.processing_status == 'completed':
-                return jsonify({
-                    'success': True,
-                    'video_id': video_id,
-                    'job_id': video_id,  # Include for consistency
-                    'already_processed': True,
-                    'r2_url': video.r2_url
-                })
-            elif video.processing_status == 'processing':
-                # Video is already being processed, don't start another job
-                return jsonify({
-                    'success': True,
-                    'video_id': video_id,
-                    'job_id': video_id,  # Include so JS can poll status
-                    'already_processing': True,
-                    'message': 'Video is already being processed. Please wait.'
-                })
+        # Atomically get or create video (prevents race conditions)
+        video, created, should_process = db.get_or_create_video_atomic(
+            video_id,
+            "Processing...",
+            youtube_url
+        )
 
-        # Check concurrent job limits
-        if not USE_CELERY:
-            with processing_status_lock:
-                active_jobs = sum(1 for status in processing_status.values()
-                                if not status.get('complete', False))
-                if active_jobs >= app.config['MAX_CONCURRENT_JOBS']:
-                    return jsonify({
-                        'success': False,
-                        'error': f"Too many videos processing. Maximum {app.config['MAX_CONCURRENT_JOBS']} allowed."
-                    }), 429
+        # If video already completed, return result immediately
+        if video.processing_status == 'completed' and not should_process:
+            return jsonify({
+                'success': True,
+                'video_id': video_id,
+                'job_id': video_id,
+                'already_processed': True,
+                'r2_url': video.r2_url
+            })
 
-        # Create database entry or reset failed video
-        if not video:
-            video = db.create_video(video_id, "Processing...", youtube_url)
-        elif video.processing_status == 'failed':
-            # Reset failed video to retry
-            db.update_video_status(video_id, 'processing')
-            db.update_video_progress(video_id, "Retrying...", 0)
+        # If video already processing (by another request), inform user
+        if video.processing_status == 'processing' and not should_process:
+            return jsonify({
+                'success': True,
+                'video_id': video_id,
+                'job_id': video_id,
+                'already_processing': True,
+                'message': 'Video is already being processed. Please wait.'
+            })
+
+        # Check concurrent job limits (only if we should process)
+        if should_process and not USE_CELERY:
+            all_statuses = status_tracker.get_all_statuses()
+            active_jobs = sum(1 for status in all_statuses.values()
+                            if not status.get('complete', False))
+            if active_jobs >= app.config['MAX_CONCURRENT_JOBS']:
+                # Rollback: Mark video as failed if we just created it
+                if created:
+                    db.update_video_status(video_id, 'failed', error_message='Too many concurrent jobs')
+                return jsonify({
+                    'success': False,
+                    'error': f"Too many videos processing. Maximum {app.config['MAX_CONCURRENT_JOBS']} allowed."
+                }), 429
+
+        # Only start processing if should_process is True
+        if not should_process:
+            return jsonify({
+                'success': False,
+                'error': 'Video cannot be processed at this time'
+            }), 400
 
         # Start background processing (Celery or threading)
         # Pass user_id to charge minutes after completion
@@ -474,12 +513,11 @@ def process_video():
             task_id_map[video_id] = task.id
         else:
             # Initialize processing status for threading mode
-            with processing_status_lock:
-                processing_status[video_id] = {
-                    'status': 'Starting...',
-                    'progress': 0,
-                    'video_id': video_id
-                }
+            status_tracker.update_status(video_id, {
+                'status': 'Starting...',
+                'progress': 0,
+                'video_id': video_id
+            })
             thread = threading.Thread(
                 target=process_video_threading,
                 args=(video_id, youtube_url, user_id)
@@ -542,10 +580,10 @@ def get_status(video_id):
         # For Celery mode, the task updates the database directly
         # For threading mode, check the in-memory dict
         if not USE_CELERY:
-            with processing_status_lock:
-                if video_id in processing_status:
-                    # Make a copy to avoid returning reference to shared dict
-                    return jsonify(dict(processing_status[video_id]))
+            # Check threading mode status
+            threading_status = status_tracker.get_status(video_id)
+            if threading_status:
+                return jsonify(threading_status)
 
         # Default response - video is being processed
         return jsonify({
@@ -591,8 +629,12 @@ def download_file(filename):
 
 
 @app.route('/debug/<video_id>')
+@login_required
 def debug_video(video_id):
-    """Debug endpoint to see detailed processing status"""
+    """
+    Debug endpoint to see detailed processing status.
+    SECURITY: Requires authentication to prevent information disclosure.
+    """
     try:
         video_id = validate_video_id(video_id)
         video = db.get_video_by_id(video_id)
@@ -608,11 +650,11 @@ def debug_video(video_id):
             'timestamp': datetime.now().isoformat()
         }
 
-        # If threading mode, include in-memory status
+        # If threading mode, include status tracker info
         if not USE_CELERY:
-            with processing_status_lock:
-                if video_id in processing_status:
-                    debug_info['threading_status'] = dict(processing_status[video_id])
+            threading_status = status_tracker.get_status(video_id)
+            if threading_status:
+                debug_info['threading_status'] = threading_status
 
         return jsonify(debug_info)
 
@@ -624,14 +666,22 @@ def debug_video(video_id):
 
 
 @app.route('/console/<video_id>')
+@login_required
 def console_viewer(video_id):
-    """Display console logs for a video"""
+    """
+    Display console logs for a video.
+    SECURITY: Requires authentication - logs may contain sensitive information.
+    """
     return render_template('console.html', video_id=video_id)
 
 
 @app.route('/api/logs/<video_id>')
+@login_required
 def get_console_logs(video_id):
-    """Get console logs for a specific video processing job"""
+    """
+    Get console logs for a specific video processing job.
+    SECURITY: Requires authentication - logs may contain sensitive data.
+    """
     from src.console_logger import console
 
     try:
@@ -671,10 +721,12 @@ def api_usage_stats():
 
 
 @app.route('/api/pipeline-debug/<video_id>')
+@login_required
 def api_pipeline_debug(video_id):
     """
     Get detailed pipeline debug data for a video.
     Shows: transcription, translation, TTS input with all timecodes.
+    SECURITY: Requires authentication - contains detailed processing data.
     """
     try:
         video_id = validate_video_id(video_id)
@@ -715,9 +767,11 @@ def api_pipeline_debug(video_id):
 
 
 @app.route('/pipeline/<video_id>')
+@login_required
 def pipeline_viewer(video_id):
     """
-    Debug UI page showing pipeline steps: transcription -> translation -> TTS
+    Debug UI page showing pipeline steps: transcription -> translation -> TTS.
+    SECURITY: Requires authentication - contains detailed processing information.
     """
     try:
         video_id = validate_video_id(video_id)

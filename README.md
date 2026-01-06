@@ -1,5 +1,11 @@
 # Georgian Voiceover App
 
+![CI Status](https://github.com/speudoname/georgian-voiceover-app/workflows/CI%20-%20Tests%20%26%20Quality%20Checks/badge.svg)
+![Deploy Status](https://github.com/speudoname/georgian-voiceover-app/workflows/CD%20-%20Deploy%20to%20Production/badge.svg)
+![Code Coverage](https://codecov.io/gh/speudoname/georgian-voiceover-app/branch/main/graph/badge.svg)
+![Python Version](https://img.shields.io/badge/python-3.9%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 Translate YouTube videos to Georgian with natural voiceover overlay (traditional documentary-style dubbing).
 
 ## Features
@@ -100,5 +106,72 @@ Possible enhancements:
 - Multiple language support
 - Preview before download
 - Progress percentage improvements
+
+## Development
+
+### Running Tests
+
+```bash
+# Install dev dependencies
+pip install -r requirements-dev.txt
+
+# Run all tests
+make test
+
+# Run with coverage
+make test-cov
+
+# Run specific test types
+make test-unit         # Unit tests only
+make test-integration  # Integration tests only
+```
+
+See [TESTING_SETUP.md](TESTING_SETUP.md) for comprehensive testing documentation.
+
+### Code Quality
+
+```bash
+# Format code
+make format
+
+# Run linters
+make lint
+
+# Type checking
+make type-check
+
+# Security scan
+make security
+
+# Run all checks (CI simulation)
+make ci
+```
+
+### CI/CD
+
+This project uses GitHub Actions for continuous integration and deployment:
+
+- **CI**: Automated tests, linting, and security checks on every PR
+- **CD**: Automated deployment to production on merge to main
+- **Code Quality**: Weekly code analysis and dependency audits
+- **Dependabot**: Automated dependency updates
+
+See [CI_CD_SETUP.md](CI_CD_SETUP.md) for complete CI/CD documentation.
+
+### Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feat/my-feature`
+3. Make your changes and add tests
+4. Run tests: `make test`
+5. Commit: `git commit -m "feat: Add my feature"`
+6. Push: `git push origin feat/my-feature`
+7. Create a Pull Request
+
+## License
+
+MIT License - see LICENSE file for details.
+
+---
 
 Enjoy translating videos to Georgian! 🇬🇪

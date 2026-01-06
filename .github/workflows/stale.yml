@@ -1,0 +1,65 @@
+name: Mark Stale Issues and PRs
+
+on:
+  schedule:
+    # Run daily at 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    name: Mark Stale Items
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Mark stale issues and PRs
+        uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+          # Issues
+          stale-issue-message: |
+            👋 This issue has been automatically marked as stale because it has not had recent activity.
+            It will be closed if no further activity occurs within 7 days.
+
+            If this issue is still relevant, please:
+            - Add a comment to keep it open
+            - Add the `keep-open` label
+            - Provide additional context or updates
+
+            Thank you for your contributions! 🙏
+          close-issue-message: |
+            🔒 This issue has been automatically closed due to inactivity.
+            If you believe this issue is still relevant, please reopen it or create a new issue with updated information.
+          days-before-stale: 30
+          days-before-close: 7
+          stale-issue-label: 'stale'
+          exempt-issue-labels: 'keep-open,bug,security,help-wanted,good-first-issue'
+
+          # Pull Requests
+          stale-pr-message: |
+            👋 This pull request has been automatically marked as stale because it has not had recent activity.
+            It will be closed if no further activity occurs within 7 days.
+
+            If this PR is still being worked on:
+            - Push new commits
+            - Add a comment with an update
+            - Add the `keep-open` label
+
+            Thank you for your contribution! 🙏
+          close-pr-message: |
+            🔒 This pull request has been automatically closed due to inactivity.
+            Feel free to reopen if you plan to continue working on it.
+          days-before-pr-stale: 14
+          days-before-pr-close: 7
+          stale-pr-label: 'stale'
+          exempt-pr-labels: 'keep-open,work-in-progress,blocked'
+
+          # Additional settings
+          operations-per-run: 100
+          remove-stale-when-updated: true
+          ascending: false

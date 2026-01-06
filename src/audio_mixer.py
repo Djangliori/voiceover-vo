@@ -154,10 +154,12 @@ class AudioMixer:
         # This is the most direct way - no pydub operations that could affect volume
         logger.info(f"Concatenating {len(pieces)} pieces")
 
-        # Collect all raw bytes
-        all_bytes = b''
+        # Collect all raw bytes efficiently (avoiding O(n²) concatenation)
+        # Using list and join is O(n) instead of O(n²)
+        all_bytes_list = []
         for piece in pieces:
-            all_bytes += piece.raw_data
+            all_bytes_list.append(piece.raw_data)
+        all_bytes = b''.join(all_bytes_list)
 
         # Create single AudioSegment from concatenated bytes
         voiceover_track = AudioSegment(

@@ -1,0 +1,83 @@
+# Labeler Configuration
+# Automatically adds labels to PRs based on changed files
+
+# Documentation changes
+documentation:
+  - changed-files:
+    - any-glob-to-any-file: ['**/*.md', 'docs/**/*']
+
+# Testing changes
+testing:
+  - changed-files:
+    - any-glob-to-any-file: ['tests/**/*', '**/*test*.py', 'pytest.ini', '.coveragerc']
+
+# CI/CD changes
+ci/cd:
+  - changed-files:
+    - any-glob-to-any-file: ['.github/**/*', 'Makefile', '*.sh']
+
+# Dependencies
+dependencies:
+  - changed-files:
+    - any-glob-to-any-file: ['requirements*.txt', 'Pipfile', 'Pipfile.lock', 'setup.py']
+
+# Configuration
+configuration:
+  - changed-files:
+    - any-glob-to-any-file: ['*.yml', '*.yaml', '*.toml', '*.ini', '*.env*', 'src/config.py']
+
+# Database
+database:
+  - changed-files:
+    - any-glob-to-any-file: ['src/database.py', 'alembic/**/*', '**/migrations/**/*']
+
+# API changes
+api:
+  - changed-files:
+    - any-glob-to-any-file: ['app.py', 'src/**/api*.py', 'src/validators.py']
+
+# Frontend
+frontend:
+  - changed-files:
+    - any-glob-to-any-file: ['templates/**/*', 'static/**/*', '**/*.html', '**/*.css', '**/*.js']
+
+# Video processing
+video-processing:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/video_processor.py'
+      - 'src/downloader.py'
+      - 'src/audio_mixer.py'
+
+# Translation/TTS
+translation:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/translator.py'
+      - 'src/transcriber.py'
+      - 'src/tts*.py'
+
+# Authentication
+authentication:
+  - changed-files:
+    - any-glob-to-any-file: ['src/auth.py', 'templates/login.html', 'templates/register.html']
+
+# Background tasks
+celery:
+  - changed-files:
+    - any-glob-to-any-file: ['celery_app.py', 'src/tasks.py', 'src/redis_config.py']
+
+# Security
+security:
+  - changed-files:
+    - any-glob-to-any-file: ['src/auth.py', 'src/validators.py', '**/security*.py']
+
+# Performance
+performance:
+  - changed-files:
+    - any-glob-to-any-file: ['**/cache*.py', '**/optimization*.py', 'src/storage.py']
+
+# Logging
+logging:
+  - changed-files:
+    - any-glob-to-any-file: ['src/logging_config.py', 'src/console_logger.py']

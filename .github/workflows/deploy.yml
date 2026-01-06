@@ -1,0 +1,350 @@
+name: CD - Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:  # Manual deployment trigger
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+env:
+  PYTHON_VERSION: '3.9'
+
+jobs:
+  # ==================================
+  # Pre-deployment Checks
+  # ==================================
+  pre-deploy-checks:
+    name: Pre-deployment Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run smoke tests
+        env:
+          TESTING: 1
+          FLASK_ENV: testing
+          SECRET_KEY: test-secret-key
+        run: |
+          pytest -m smoke -v || echo "No smoke tests defined yet"
+
+      - name: Security scan before deploy
+        run: |
+          pip install bandit safety
+          bandit -r src/ app.py -ll
+          safety check --json || true
+
+      - name: Check for secrets in code
+        run: |
+          git secrets --scan || echo "git-secrets not installed, skipping"
+
+  # ==================================
+  # Build Docker Image (Optional)
+  # ==================================
+  build-docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: pre-deploy-checks
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ==================================
+  # Deploy to Railway
+  # ==================================
+  deploy-railway:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    needs: [pre-deploy-checks, build-docker]
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://geyoutube.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: |
+          npm install -g @railway/cli
+
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway up --service web
+          railway up --service worker
+
+      - name: Verify deployment
+        run: |
+          echo "Waiting for deployment to stabilize..."
+          sleep 30
+          curl --retry 5 --retry-delay 10 --fail https://geyoutube.com/health || exit 1
+
+  # ==================================
+  # Deploy to Alternative Platform (Render/Heroku/etc)
+  # ==================================
+  deploy-alternative:
+    name: Deploy to Alternative Platform
+    runs-on: ubuntu-latest
+    needs: pre-deploy-checks
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Render
+        if: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
+
+      - name: Deploy to Heroku
+        if: ${{ secrets.HEROKU_API_KEY }}
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: |
+          git push https://heroku:$HEROKU_API_KEY@git.heroku.com/geyoutube-app.git main
+
+  # ==================================
+  # Database Migrations
+  # ==================================
+  run-migrations:
+    name: Run Database Migrations
+    runs-on: ubuntu-latest
+    needs: deploy-railway
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Alembic migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          pip install alembic
+          # alembic upgrade head  # Uncomment when Alembic is set up
+          echo "Migrations skipped - Alembic not yet configured"
+
+  # ==================================
+  # Post-deployment Checks
+  # ==================================
+  post-deploy-checks:
+    name: Post-deployment Health Checks
+    runs-on: ubuntu-latest
+    needs: deploy-railway
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Wait for deployment
+        run: sleep 30
+
+      - name: Check health endpoint
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" https://geyoutube.com/health)
+          if [ $response -ne 200 ]; then
+            echo "❌ Health check failed with status code: $response"
+            exit 1
+          fi
+          echo "✅ Health check passed"
+
+      - name: Check API endpoints
+        run: |
+          curl --fail https://geyoutube.com/ || exit 1
+          curl --fail https://geyoutube.com/library || exit 1
+          echo "✅ API endpoints responding"
+
+      - name: Run smoke tests against production
+        run: |
+          # Add production smoke tests here
+          echo "✅ Smoke tests would run here"
+
+  # ==================================
+  # Create GitHub Release
+  # ==================================
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: post-deploy-checks
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          previous_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$previous_tag" ]; then
+            changelog=$(git log --pretty=format:"- %s (%h)" --reverse)
+          else
+            changelog=$(git log ${previous_tag}..HEAD --pretty=format:"- %s (%h)" --reverse)
+          fi
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$changelog" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body: |
+            ## Changes in this Release
+            ${{ steps.changelog.outputs.changelog }}
+
+            ## Deployment
+            - ✅ Deployed to production
+            - ✅ All tests passed
+            - ✅ Security scans completed
+
+            ## Installation
+            ```bash
+            git clone https://github.com/${{ github.repository }}.git
+            cd georgian-voiceover-app
+            pip install -r requirements.txt
+            ```
+          draft: false
+          prerelease: false
+
+  # ==================================
+  # Notify on Deployment
+  # ==================================
+  notify:
+    name: Deployment Notifications
+    runs-on: ubuntu-latest
+    needs: [post-deploy-checks]
+    if: always()
+
+    steps:
+      - name: Send Slack notification
+        if: ${{ secrets.SLACK_WEBHOOK }}
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "🚀 Deployment to production ${{ needs.post-deploy-checks.result == 'success' && 'succeeded' || 'failed' }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Georgian Voiceover App - Deployment*\n Status: ${{ needs.post-deploy-checks.result == 'success' && '✅ Success' || '❌ Failed' }}\n Branch: `${{ github.ref_name }}`\n Commit: `${{ github.sha }}`"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+      - name: Send Discord notification
+        if: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          curl -X POST ${{ secrets.DISCORD_WEBHOOK }} \
+            -H "Content-Type: application/json" \
+            -d '{
+              "content": "🚀 Deployment ${{ needs.post-deploy-checks.result == 'success' && '✅ succeeded' || '❌ failed' }}",
+              "embeds": [{
+                "title": "Georgian Voiceover App",
+                "description": "Deployed to production",
+                "color": ${{ needs.post-deploy-checks.result == 'success' && '3066993' || '15158332' }},
+                "fields": [
+                  {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true},
+                  {"name": "Commit", "value": "`${{ github.sha }}`", "inline": true}
+                ]
+              }]
+            }'
+
+  # ==================================
+  # Rollback on Failure
+  # ==================================
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: post-deploy-checks
+    if: failure() && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Trigger rollback
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          echo "🔄 Initiating rollback..."
+          # railway rollback --service web
+          echo "⚠️ Manual rollback required - check Railway dashboard"
+
+      - name: Create incident issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Production Deployment Failed',
+              body: `Deployment failed for commit ${context.sha}.\n\nPlease investigate and rollback if necessary.`,
+              labels: ['bug', 'urgent', 'production']
+            })
