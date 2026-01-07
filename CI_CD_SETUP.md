@@ -420,7 +420,7 @@ make test-cov
 
 1. Check Railway logs
 2. Verify environment variables
-3. Check health endpoint: `https://geyoutube.com/health`
+3. Check health endpoint: `https://voyoutube.com/health`
 4. Review deployment workflow logs
 
 ### **Dependabot PRs Failing**

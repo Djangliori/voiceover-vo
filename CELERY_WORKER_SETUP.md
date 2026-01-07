@@ -5,7 +5,7 @@
 A `celery-worker` service has been created in your Railway project but needs to be connected to the GitHub repository.
 
 **Service ID**: `9037b92e-21a8-40cd-8e33-92161c46f74c`
-**Project**: geyoutube
+**Project**: voyoutube
 **Dashboard**: https://railway.app/project/bd7d8d73-c874-4145-a4ef-a27bf5f3efe3
 
 ---
@@ -92,7 +92,7 @@ User Request → Flask App → Celery Task Queue (Redis) → Celery Worker → P
 ```
 
 ### Task Flow
-1. User submits YouTube URL through geyoutube.com
+1. User submits YouTube URL through voyoutube.com
 2. Flask app creates task in Redis queue
 3. Celery worker picks up task from queue
 4. Worker processes video (download → transcribe → translate → TTS → mix → upload)
@@ -133,7 +133,7 @@ User Request → Flask App → Celery Task Queue (Redis) → Celery Worker → P
 
 After deployment, test the worker:
 
-1. Go to https://geyoutube.com
+1. Go to https://voyoutube.com
 2. Enter a YouTube URL (preferably a SHORT video for testing)
 3. Click "Translate to Georgian"
 4. Watch the progress bar and status updates

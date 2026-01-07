@@ -71,8 +71,8 @@ Add to `.env`:
 CLOUDFLARE_ACCOUNT_ID=your_account_id
 R2_ACCESS_KEY_ID=your_access_key
 R2_SECRET_ACCESS_KEY=your_secret_key
-R2_BUCKET_NAME=geyoutube-videos
-R2_PUBLIC_URL=https://videos.geyoutube.com
+R2_BUCKET_NAME=voyoutube-videos
+R2_PUBLIC_URL=https://videos.voyoutube.com
 ```
 
 ---
@@ -177,7 +177,7 @@ def extract_video_id(url):
     patterns = [
         r'(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})',
         r'(?:youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})',
-        r'(?:geyoutube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})'
+        r'(?:voyoutube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})'
     ]
     # ... implementation
     return video_id

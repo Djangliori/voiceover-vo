@@ -1,4 +1,4 @@
-# GeYouTube Deployment Status
+# VoYouTube Deployment Status
 
 ## ✅ Completed Automatically
 
@@ -14,7 +14,7 @@
    - ✅ VOICEOVER_VOLUME=1.0
    - ✅ WHISPER_MODEL=base
    - ✅ CLOUDFLARE_ACCOUNT_ID=71c315d5a485ec66ea22a5f76139b944
-   - ✅ R2_BUCKET_NAME=geyoutube-videos
+   - ✅ R2_BUCKET_NAME=voyoutube-videos
 
 2. **Railway Domain Generated**:
    - ✅ Domain: `georgian-voiceover-app-production.up.railway.app`
@@ -26,11 +26,11 @@
 
 ### Cloudflare Configuration
 1. **R2 Bucket Created**:
-   - ✅ Bucket Name: `geyoutube-videos`
+   - ✅ Bucket Name: `voyoutube-videos`
    - ✅ Account ID: 71c315d5a485ec66ea22a5f76139b944
 
 2. **DNS Configuration**:
-   - ✅ CNAME Record: `geyoutube.com` → `georgian-voiceover-app-production.up.railway.app`
+   - ✅ CNAME Record: `voyoutube.com` → `georgian-voiceover-app-production.up.railway.app`
    - ✅ Proxied: True (Orange Cloud)
    - ✅ TTL: Auto
    - ✅ SSL/TLS Mode: Full
@@ -50,9 +50,9 @@
 3. Click **Manage R2 API Tokens**
 4. Click **Create API Token**
 5. Settings:
-   - **Token name**: `geyoutube-app`
+   - **Token name**: `voyoutube-app`
    - **Permissions**: Object Read & Write
-   - **Specify bucket**: `geyoutube-videos`
+   - **Specify bucket**: `voyoutube-videos`
    - **TTL**: Leave default (forever)
 6. Click **Create API Token**
 7. **SAVE THESE** (shown only once):
@@ -71,7 +71,7 @@ Once you have the R2 credentials from Step 1:
 ```
 R2_ACCESS_KEY_ID=[paste Access Key ID from Step 1]
 R2_SECRET_ACCESS_KEY=[paste Secret Access Key from Step 1]
-R2_PUBLIC_URL=https://geyoutube.com/videos
+R2_PUBLIC_URL=https://voyoutube.com/videos
 ```
 
 **Note**: I can also add these via API if you provide the credentials.
@@ -84,7 +84,7 @@ R2_PUBLIC_URL=https://geyoutube.com/videos
 1. In Railway, go to **georgian-voiceover-app** service
 2. Go to **Settings** → **Networking**
 3. Under **Custom Domain**, click **Add Domain**
-4. Enter: `geyoutube.com`
+4. Enter: `voyoutube.com`
 5. Railway will automatically verify the DNS (already configured in Cloudflare)
 6. Domain will become active within 5-10 minutes
 
@@ -97,8 +97,8 @@ Before testing, verify:
 - [ ] R2 API token created
 - [ ] R2_ACCESS_KEY_ID added to Railway
 - [ ] R2_SECRET_ACCESS_KEY added to Railway
-- [ ] R2_PUBLIC_URL=https://geyoutube.com/videos added to Railway
-- [ ] Custom domain `geyoutube.com` added to Railway
+- [ ] R2_PUBLIC_URL=https://voyoutube.com/videos added to Railway
+- [ ] Custom domain `voyoutube.com` added to Railway
 - [ ] Wait 5-10 minutes for DNS propagation
 
 ---
@@ -115,7 +115,7 @@ Should show the landing page.
 
 ### 2. Test Custom Domain (After DNS propagation)
 ```
-https://geyoutube.com
+https://voyoutube.com
 ```
 Should show the landing page.
 
@@ -125,9 +125,9 @@ Take any YouTube URL:
 https://www.youtube.com/watch?v=dQw4w9WgXcQ
 ```
 
-Replace `youtube.com` with `geyoutube.com`:
+Replace `youtube.com` with `voyoutube.com`:
 ```
-https://geyoutube.com/watch?v=dQw4w9WgXcQ
+https://voyoutube.com/watch?v=dQw4w9WgXcQ
 ```
 
 Should:
@@ -148,7 +148,7 @@ Should:
 | Environment Variables | ✅ Set (11/11) | All configured |
 | PostgreSQL | ✅ Added | DATABASE_URL should be auto-linked |
 | Railway Domain | ✅ Generated | georgian-voiceover-app-production.up.railway.app |
-| R2 Bucket | ✅ Created | geyoutube-videos |
+| R2 Bucket | ✅ Created | voyoutube-videos |
 | R2 API Token | ❌ Manual | Cloudflare API limitation |
 | R2 Credentials in Railway | ❌ Manual | Waiting for Step 1 & 2 |
 | Cloudflare DNS | ✅ Configured | CNAME + SSL/TLS |
@@ -162,7 +162,7 @@ Should:
 - **GitHub Repo**: https://github.com/speudoname/georgian-voiceover-app
 - **Cloudflare Dashboard**: https://dash.cloudflare.com
 - **Railway Domain**: https://georgian-voiceover-app-production.up.railway.app
-- **Custom Domain** (after setup): https://geyoutube.com
+- **Custom Domain** (after setup): https://voyoutube.com
 
 ---
 
@@ -186,7 +186,7 @@ Should:
 
 1. Complete the 3 manual steps above
 2. Wait 5-10 minutes for DNS propagation
-3. Test at https://geyoutube.com
+3. Test at https://voyoutube.com
 4. Process a test video
 
 **Total time**: ~10 minutes including DNS propagation

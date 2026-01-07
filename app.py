@@ -1,7 +1,7 @@
 """
 Georgian Voiceover App - Main Flask Application
 Web interface for translating YouTube videos to Georgian with voiceover
-Supports geyoutube.com URL pattern (like ssyoutube.com)
+Supports voyoutube.com URL pattern (like ssyoutube.com)
 """
 
 import os
@@ -350,7 +350,7 @@ def index():
 def watch():
     """
     YouTube-style watch page
-    Handles URLs like: geyoutube.com/watch?v=VIDEO_ID
+    Handles URLs like: voyoutube.com/watch?v=VIDEO_ID
     Redirects to main page with unified interface
     """
     video_id = request.args.get('v')
@@ -840,7 +840,7 @@ if __name__ == '__main__':
 
     print(f"""
 ╔══════════════════════════════════════════════════════════════╗
-║  Georgian Voiceover App - geyoutube.com                      ║
+║  Georgian Voiceover App - voyoutube.com                      ║
 ║  YouTube to Georgian Translation with Voiceover              ║
 ╚══════════════════════════════════════════════════════════════╝
 
@@ -848,7 +848,7 @@ if __name__ == '__main__':
 
 📝 Instructions:
    1. Open http://localhost:{port} in your browser
-   2. Or use: geyoutube.com/watch?v=VIDEO_ID
+   2. Or use: voyoutube.com/watch?v=VIDEO_ID
    3. Video will be automatically processed
    4. Watch directly in browser!
 

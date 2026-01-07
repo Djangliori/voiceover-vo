@@ -47,15 +47,15 @@ class TestValidateYouTubeURL:
         assert video_id == 'dQw4w9WgXcQ'
 
     @pytest.mark.unit
-    def test_geyoutube_url(self, youtube_urls):
-        """Test geyoutube.com URL (custom domain)"""
-        video_id = validate_youtube_url(youtube_urls['geyoutube'])
+    def test_voyoutube_url(self, youtube_urls):
+        """Test voyoutube.com URL (custom domain)"""
+        video_id = validate_youtube_url(youtube_urls['voyoutube'])
         assert video_id == 'dQw4w9WgXcQ'
 
     @pytest.mark.unit
-    def test_geyoutube_shorts_url(self, youtube_urls):
-        """Test geyoutube.com/shorts/ URL"""
-        video_id = validate_youtube_url(youtube_urls['geyoutube_shorts'])
+    def test_voyoutube_shorts_url(self, youtube_urls):
+        """Test voyoutube.com/shorts/ URL"""
+        video_id = validate_youtube_url(youtube_urls['voyoutube_shorts'])
         assert video_id == 'dQw4w9WgXcQ'
 
     @pytest.mark.unit

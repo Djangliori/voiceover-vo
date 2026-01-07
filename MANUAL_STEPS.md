@@ -1,9 +1,9 @@
-# Manual Setup Steps - GeYouTube
+# Manual Setup Steps - VoYouTube
 
 ## ✅ Already Done by Me
 - All Railway environment variables (11/11)
 - Cloudflare R2 bucket created
-- Cloudflare DNS configured: `geyoutube.com` → `lw37d1ti.up.railway.app`
+- Cloudflare DNS configured: `voyoutube.com` → `lw37d1ti.up.railway.app`
 - Railway domain generated
 
 ---
@@ -24,7 +24,7 @@ Cloudflare's REST API does not have an endpoint for creating R2 API tokens. When
 
 2. **Navigate to R2**
    - In the left sidebar, click **R2**
-   - You'll see your bucket: `geyoutube-videos`
+   - You'll see your bucket: `voyoutube-videos`
 
 3. **Go to API Tokens**
    - Click **Manage R2 API Tokens** (button on the right side)
@@ -37,10 +37,10 @@ Cloudflare's REST API does not have an endpoint for creating R2 API tokens. When
 
    | Field | Value |
    |-------|-------|
-   | **Token name** | `geyoutube-app` |
+   | **Token name** | `voyoutube-app` |
    | **Permissions** | Select **Object Read & Write** |
    | **Apply to specific buckets only** | Toggle ON |
-   | **Bucket** | Select `geyoutube-videos` from dropdown |
+   | **Bucket** | Select `voyoutube-videos` from dropdown |
    | **TTL (Time to Live)** | Leave as default (forever) |
 
 6. **Create the Token**
@@ -79,7 +79,7 @@ Secret Access Key: [paste here]
 I'll add all 3 required variables to Railway automatically via API:
 - `R2_ACCESS_KEY_ID`
 - `R2_SECRET_ACCESS_KEY`
-- `R2_PUBLIC_URL=https://geyoutube.com/videos`
+- `R2_PUBLIC_URL=https://voyoutube.com/videos`
 
 ### Option B: Manual Setup in Railway Dashboard
 
@@ -105,7 +105,7 @@ I'll add all 3 required variables to Railway automatically via API:
 5. **Add Third Variable**
    - Click **New Variable** button again
    - **Variable name**: `R2_PUBLIC_URL`
-   - **Value**: `https://geyoutube.com/videos`
+   - **Value**: `https://voyoutube.com/videos`
    - Press Enter or click outside to save
 
 6. **Verify**
@@ -121,8 +121,8 @@ Once Step 1 and Step 2 are complete:
 1. **Wait 2-3 minutes** for Railway to redeploy with new R2 credentials
 2. **Wait 5-10 minutes** for DNS to fully propagate
 3. **Test your app**:
-   - Open: https://geyoutube.com
-   - Or try directly: https://geyoutube.com/watch?v=dQw4w9WgXcQ
+   - Open: https://voyoutube.com
+   - Or try directly: https://voyoutube.com/watch?v=dQw4w9WgXcQ
 
 ---
 
@@ -130,16 +130,16 @@ Once Step 1 and Step 2 are complete:
 
 ### Check 1: DNS is working
 ```bash
-dig geyoutube.com
+dig voyoutube.com
 ```
 Should show CNAME pointing to `lw37d1ti.up.railway.app`
 
 ### Check 2: Website loads
-Open https://geyoutube.com - should show the landing page
+Open https://voyoutube.com - should show the landing page
 
 ### Check 3: Video processing works
 1. Take any YouTube URL: `https://www.youtube.com/watch?v=VIDEO_ID`
-2. Replace with: `https://geyoutube.com/watch?v=VIDEO_ID`
+2. Replace with: `https://voyoutube.com/watch?v=VIDEO_ID`
 3. Should start processing with progress bar
 4. When complete, video plays with Georgian voiceover
 

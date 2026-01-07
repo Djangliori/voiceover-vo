@@ -116,7 +116,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     environment:
       name: production
-      url: https://geyoutube.com
+      url: https://voyoutube.com
 
     steps:
       - name: Checkout code
@@ -137,7 +137,7 @@ jobs:
         run: |
           echo "Waiting for deployment to stabilize..."
           sleep 30
-          curl --retry 5 --retry-delay 10 --fail https://geyoutube.com/health || exit 1
+          curl --retry 5 --retry-delay 10 --fail https://voyoutube.com/health || exit 1
 
   # ==================================
   # Deploy to Alternative Platform (Render/Heroku/etc)
@@ -162,7 +162,7 @@ jobs:
         env:
           HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
         run: |
-          git push https://heroku:$HEROKU_API_KEY@git.heroku.com/geyoutube-app.git main
+          git push https://heroku:$HEROKU_API_KEY@git.heroku.com/voyoutube-app.git main
 
   # ==================================
   # Database Migrations
@@ -200,7 +200,7 @@ jobs:
 
       - name: Check health endpoint
         run: |
-          response=$(curl -s -o /dev/null -w "%{http_code}" https://geyoutube.com/health)
+          response=$(curl -s -o /dev/null -w "%{http_code}" https://voyoutube.com/health)
           if [ $response -ne 200 ]; then
             echo "❌ Health check failed with status code: $response"
             exit 1
@@ -209,8 +209,8 @@ jobs:
 
       - name: Check API endpoints
         run: |
-          curl --fail https://geyoutube.com/ || exit 1
-          curl --fail https://geyoutube.com/library || exit 1
+          curl --fail https://voyoutube.com/ || exit 1
+          curl --fail https://voyoutube.com/library || exit 1
           echo "✅ API endpoints responding"
 
       - name: Run smoke tests against production

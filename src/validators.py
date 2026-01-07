@@ -8,14 +8,14 @@ from functools import wraps
 from flask import request, jsonify
 
 
-# YouTube URL patterns (including geyoutube.com support)
+# YouTube URL patterns (including voyoutube.com support)
 YOUTUBE_PATTERNS = [
     r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})',
     r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]{11})',
     r'(?:https?:\/\/)?youtu\.be\/([a-zA-Z0-9_-]{11})',
     r'(?:https?:\/\/)?(?:www\.)?youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})',
-    r'(?:https?:\/\/)?(?:www\.)?geyoutube\.com\/watch\?v=([a-zA-Z0-9_-]{11})',
-    r'(?:https?:\/\/)?(?:www\.)?geyoutube\.com\/shorts\/([a-zA-Z0-9_-]{11})',
+    r'(?:https?:\/\/)?(?:www\.)?voyoutube\.com\/watch\?v=([a-zA-Z0-9_-]{11})',
+    r'(?:https?:\/\/)?(?:www\.)?voyoutube\.com\/shorts\/([a-zA-Z0-9_-]{11})',
     r'[?&]v=([a-zA-Z0-9_-]{11})',  # Query parameter fallback
 ]
 

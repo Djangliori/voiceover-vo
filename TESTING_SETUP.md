@@ -32,7 +32,7 @@ tests/
 #### Unit Tests (`tests/unit/`)
 
 **test_validators.py** (45 tests):
-- ✅ YouTube URL validation (standard, short, embed, shorts, geyoutube)
+- ✅ YouTube URL validation (standard, short, embed, shorts, voyoutube)
 - ✅ Video ID extraction from various URL formats
 - ✅ Video ID format validation
 - ✅ Filename sanitization & path traversal protection

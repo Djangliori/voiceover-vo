@@ -226,8 +226,8 @@ def youtube_urls():
         'short': 'https://youtu.be/dQw4w9WgXcQ',
         'embed': 'https://www.youtube.com/embed/dQw4w9WgXcQ',
         'shorts': 'https://www.youtube.com/shorts/dQw4w9WgXcQ',
-        'geyoutube': 'https://geyoutube.com/watch?v=dQw4w9WgXcQ',
-        'geyoutube_shorts': 'https://geyoutube.com/shorts/dQw4w9WgXcQ',
+        'voyoutube': 'https://voyoutube.com/watch?v=dQw4w9WgXcQ',
+        'voyoutube_shorts': 'https://voyoutube.com/shorts/dQw4w9WgXcQ',
         'invalid': 'https://example.com/not-a-youtube-url',
         'malformed': 'not-even-a-url',
     }

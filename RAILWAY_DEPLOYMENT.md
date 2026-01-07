@@ -7,7 +7,7 @@
 Since we couldn't set it via CLI, please add the AssemblyAI API key manually:
 
 1. Go to [Railway Dashboard](https://railway.app/dashboard)
-2. Navigate to your **geyoutube** project
+2. Navigate to your **voyoutube** project
 3. Click on the service (likely named "web" or similar)
 4. Go to the **Variables** tab
 5. Click **Add Variable**

@@ -19,7 +19,7 @@ class R2Storage:
         self.account_id = os.getenv('CLOUDFLARE_ACCOUNT_ID')
         self.access_key_id = os.getenv('R2_ACCESS_KEY_ID')
         self.secret_access_key = os.getenv('R2_SECRET_ACCESS_KEY')
-        self.bucket_name = os.getenv('R2_BUCKET_NAME', 'geyoutube-videos')
+        self.bucket_name = os.getenv('R2_BUCKET_NAME', 'voyoutube-videos')
 
         if not all([self.account_id, self.access_key_id, self.secret_access_key]):
             raise ValueError("Missing R2 credentials in environment variables")
@@ -38,7 +38,7 @@ class R2Storage:
         )
 
         # Public URL for videos (if R2 public domain is configured)
-        self.public_url = os.getenv('R2_PUBLIC_URL', f"https://videos.geyoutube.com")
+        self.public_url = os.getenv('R2_PUBLIC_URL', f"https://videos.voyoutube.com")
 
     def upload_video(self, local_path, video_id, progress_callback=None):
         """

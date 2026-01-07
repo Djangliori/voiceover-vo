@@ -148,13 +148,13 @@ class TestProcessVideoEndpoint:
 
     @pytest.mark.integration
     @pytest.mark.api
-    def test_process_handles_geyoutube_url(self, client):
-        """Test /process handles geyoutube.com URLs"""
-        geyoutube_url = 'https://geyoutube.com/watch?v=dQw4w9WgXcQ'
+    def test_process_handles_voyoutube_url(self, client):
+        """Test /process handles voyoutube.com URLs"""
+        voyoutube_url = 'https://voyoutube.com/watch?v=dQw4w9WgXcQ'
 
         with patch('app.process_video_threading'):
             response = client.post('/process',
-                                  json={'url': geyoutube_url},
+                                  json={'url': voyoutube_url},
                                   content_type='application/json')
 
             assert response.status_code in [200, 201, 400]

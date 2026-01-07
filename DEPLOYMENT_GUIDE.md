@@ -1,9 +1,9 @@
-# GeYouTube Deployment Guide
+# VoYouTube Deployment Guide
 
 ## ✅ What's Already Done
 
 1. **Code Complete** - All features implemented:
-   - YouTube-style URL routing (`geyoutube.com/watch?v=VIDEO_ID`)
+   - YouTube-style URL routing (`voyoutube.com/watch?v=VIDEO_ID`)
    - Cloudflare R2 storage integration
    - PostgreSQL database for video tracking
    - Real-time progress updates
@@ -15,7 +15,7 @@
 
 3. **Railway Project Created**:
    - Project ID: `bd7d8d73-c874-4145-a4ef-a27bf5f3efe3`
-   - Project Name: `geyoutube`
+   - Project Name: `voyoutube`
 
 ---
 
@@ -24,7 +24,7 @@
 ### Step 1: Complete Railway Deployment
 
 1. Go to https://railway.app/dashboard
-2. Find the project "geyoutube"
+2. Find the project "voyoutube"
 3. Click "+ New" → "GitHub Repo"
 4. Select `speudoname/georgian-voiceover-app`
 5. Railway will auto-detect the Procfile and nixpacks.toml
@@ -65,31 +65,31 @@ WHISPER_MODEL=base
 CLOUDFLARE_ACCOUNT_ID=[YOUR_ACCOUNT_ID]
 R2_ACCESS_KEY_ID=[FROM_STEP_4]
 R2_SECRET_ACCESS_KEY=[FROM_STEP_4]
-R2_BUCKET_NAME=geyoutube-videos
-R2_PUBLIC_URL=https://videos.geyoutube.com
+R2_BUCKET_NAME=voyoutube-videos
+R2_PUBLIC_URL=https://videos.voyoutube.com
 ```
 
 ### Step 4: Set Up Cloudflare R2
 
 #### A. Get Your Account ID
 1. Log in to Cloudflare Dashboard: https://dash.cloudflare.com
-2. Select any domain (like geyoutube.com)
+2. Select any domain (like voyoutube.com)
 3. Scroll down on Overview page - you'll see "Account ID" on the right
 4. Copy the Account ID
 
 #### B. Create R2 Bucket
 1. In Cloudflare Dashboard, go to R2 (left sidebar)
 2. Click "Create bucket"
-3. Name: `geyoutube-videos`
+3. Name: `voyoutube-videos`
 4. Location: Automatic
 5. Click "Create bucket"
 
 #### C. Create R2 API Tokens
 1. In R2, go to "Manage R2 API Tokens"
 2. Click "Create API token"
-3. Token name: `geyoutube-app`
+3. Token name: `voyoutube-app`
 4. Permissions: "Object Read & Write"
-5. Bucket(s): `geyoutube-videos`
+5. Bucket(s): `voyoutube-videos`
 6. Click "Create API Token"
 7. **Save these values** (shown only once):
    - Access Key ID
@@ -98,13 +98,13 @@ R2_PUBLIC_URL=https://videos.geyoutube.com
 #### D. Set Up Public Access (Optional - for streaming)
 1. Go to your bucket → Settings
 2. Under "Public access", click "Allow Access"
-3. Add custom domain: `videos.geyoutube.com`
+3. Add custom domain: `videos.voyoutube.com`
 4. Follow the DNS instructions Cloudflare provides
 
-### Step 5: Configure Cloudflare DNS for geyoutube.com
+### Step 5: Configure Cloudflare DNS for voyoutube.com
 
 1. Go to Cloudflare Dashboard → DNS → Records
-2. Get your Railway app URL from Railway dashboard (looks like: `geyoutube-production.up.railway.app`)
+2. Get your Railway app URL from Railway dashboard (looks like: `voyoutube-production.up.railway.app`)
 3. Add DNS record:
    - **Type**: CNAME
    - **Name**: @  (or leave blank for root domain)
@@ -130,13 +130,13 @@ R2_PUBLIC_URL=https://videos.geyoutube.com
 Once deployed:
 
 1. **Test the main site**:
-   - Go to https://geyoutube.com
+   - Go to https://voyoutube.com
    - You should see the landing page
 
 2. **Test video processing**:
    - Get any YouTube URL, e.g.: `https://www.youtube.com/watch?v=dQw4w9WgXcQ`
-   - Replace `youtube.com` with `geyoutube.com`
-   - Go to: `https://geyoutube.com/watch?v=dQw4w9WgXcQ`
+   - Replace `youtube.com` with `voyoutube.com`
+   - Go to: `https://voyoutube.com/watch?v=dQw4w9WgXcQ`
    - Should start processing automatically
 
 3. **Check progress**:

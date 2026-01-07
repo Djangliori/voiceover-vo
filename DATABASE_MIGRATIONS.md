@@ -103,13 +103,13 @@ alembic revision --autogenerate -m "Description"
 ### 2. Test Migrations Locally First
 ```bash
 # Create a test database
-createdb test_geyoutube
+createdb test_voyoutube
 
 # Test migration
-DATABASE_URL=postgresql://localhost/test_geyoutube alembic upgrade head
+DATABASE_URL=postgresql://localhost/test_voyoutube alembic upgrade head
 
 # Test downgrade
-DATABASE_URL=postgresql://localhost/test_geyoutube alembic downgrade -1
+DATABASE_URL=postgresql://localhost/test_voyoutube alembic downgrade -1
 ```
 
 ### 3. Backup Before Production Migrations
