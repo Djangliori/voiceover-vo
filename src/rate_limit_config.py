@@ -23,10 +23,15 @@ def init_rate_limiter(app):
     """
     global limiter
 
+    # Development: Higher limits for testing with frequent frontend polling
+    # Production: Stricter limits (50 per hour)
+    is_production = os.getenv('FLASK_ENV') == 'production'
+    default_limits = ["200 per day", "50 per hour"] if is_production else ["10000 per hour"]
+
     limiter = Limiter(
         get_remote_address,
         app=app,
-        default_limits=["200 per day", "50 per hour"],
+        default_limits=default_limits,
         storage_uri=os.getenv('REDIS_URL', 'memory://'),
         storage_options={"socket_connect_timeout": 30},
         strategy="fixed-window",
