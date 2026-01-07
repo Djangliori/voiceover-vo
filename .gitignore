@@ -75,3 +75,6 @@ Thumbs.db
 .env.test
 *google-credentials*.json
 shmyoutube-*.json
+
+# Runtime data files
+api_usage.json

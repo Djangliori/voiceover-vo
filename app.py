@@ -206,7 +206,7 @@ def process_video_threading(video_id, youtube_url, user_id=None):
     from src.downloader import VideoDownloader
     from src.transcriber import Transcriber
     from src.translator import Translator
-    from src.tts import TextToSpeech
+    from src.tts_factory import get_tts_provider
     from src.audio_mixer import AudioMixer
     from src.video_processor import VideoProcessor
 
@@ -225,7 +225,7 @@ def process_video_threading(video_id, youtube_url, user_id=None):
         downloader = VideoDownloader(temp_dir=app.config['TEMP_DIR'])
         transcriber = Transcriber()
         translator = Translator()
-        tts = TextToSpeech()
+        tts = get_tts_provider()
         mixer = AudioMixer(
             original_volume=float(os.getenv('ORIGINAL_AUDIO_VOLUME', 0.05)),
             voiceover_volume=float(os.getenv('VOICEOVER_VOLUME', 1.0))

@@ -49,9 +49,13 @@ class VoicegainTranscriber:
         # Speech Analytics config ID - auto-create if not provided
         self.sa_config_id = os.getenv('VOICEGAIN_SA_CONFIG_ID')
 
+        # TEMPORARY: Disable SA config auto-creation due to Voicegain API issues
         # Auto-create SA config if not provided (enables gender detection)
-        if not self.sa_config_id:
-            self.sa_config_id = self._get_or_create_sa_config()
+        # if not self.sa_config_id:
+        #     self.sa_config_id = self._get_or_create_sa_config()
+
+        # Force disable SA for now - use basic transcription only
+        self.sa_config_id = None
 
         # Store speakers for multi-voice support
         self._speakers = []
