@@ -119,6 +119,13 @@ All Python packages installed from `requirements.txt`:
    - Location: C:\ffmpeg\bin
    - Added to: System PATH (current session)
 
+5. **Domain Rebranding** (January 7, 2026)
+   - ✅ Rebranded: geyoutube.com → **voyoutube.com**
+   - Updated: 22 files across the entire project
+   - Changed: Source code (4 files), Templates (3 files), Documentation (10 files), Tests (3 files), CI/CD (2 files)
+   - Reasoning: "Vo" prefix better reflects the **voiceover** nature of the service
+   - Commit: `204110a` - Successfully pushed to GitHub
+
 ---
 
 ## 💰 API Costs
@@ -249,11 +256,13 @@ If you want to continue development:
 
 ### Phase 4: Production Deployment
 
-1. **Setup Redis** - Enable distributed processing
-2. **Migrate to PostgreSQL** - Production database
-3. **Add Cloudflare R2** - Cloud video storage
-4. **Deploy to Railway** - Production hosting
-5. **Setup CI/CD** - Automated deployments
+1. **Register Domain** - voyoutube.com (Namecheap/GoDaddy)
+2. **Setup Redis** - Enable distributed processing
+3. **Migrate to PostgreSQL** - Production database
+4. **Add Cloudflare R2** - Cloud video storage (bucket: `voyoutube-videos`)
+5. **Deploy to Railway** - Production hosting with custom domain
+6. **Setup CI/CD** - Automated deployments
+7. **Configure DNS** - Point voyoutube.com to Railway app
 
 ### Phase 5: Feature Enhancements
 
@@ -288,7 +297,8 @@ If you want to continue development:
 
 ## ✅ Summary
 
-**Project**: Georgian YouTube Voiceover App
+**Project**: Georgian YouTube Voiceover App (**VoYouTube**)
+**Domain**: voyoutube.com (planned for production)
 **Status**: ✅ **FULLY OPERATIONAL**
 **Last Updated**: January 7, 2026
 
@@ -302,7 +312,10 @@ If you want to continue development:
 
 **Ready for**: Development testing, Demo, MVP deployment
 
-**Next milestone**: Production deployment with Redis + PostgreSQL
+**How it works**: Replace `youtube.com` with `voyoutube.com` in any video URL
+- Example: `youtube.com/watch?v=abc123` → `voyoutube.com/watch?v=abc123`
+
+**Next milestone**: Production deployment with Redis + PostgreSQL + voyoutube.com domain
 
 ---
 
