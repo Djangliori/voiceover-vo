@@ -8,7 +8,6 @@ import os
 import time
 import json
 from typing import List, Dict, Optional, Tuple
-import openai
 from src.config import Config
 from src.segment_merger import SegmentMerger
 from src.logging_config import get_logger
@@ -21,12 +20,26 @@ class ContextAwareTranslator:
 
     def __init__(self):
         """Initialize context-aware translator"""
-        # Set OpenAI API key for v0.28.1 compatibility
-        api_key = os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable not set")
+        # Try Gemini first (FREE), fallback to OpenAI
+        gemini_key = os.getenv('GEMINI_API_KEY')
+        openai_key = os.getenv('OPENAI_API_KEY')
 
-        openai.api_key = api_key
+        if gemini_key:
+            # Use Gemini (FREE!)
+            from google import genai
+            self.client = genai.Client(api_key=gemini_key)
+            self.model_name = 'models/gemini-2.5-flash'
+            self.backend = 'gemini'
+            logger.info("Using Gemini API for context-aware translation (FREE)")
+        elif openai_key:
+            # Fallback to OpenAI
+            import openai
+            openai.api_key = openai_key
+            self.model = None
+            self.backend = 'openai'
+            logger.info("Using OpenAI API for context-aware translation")
+        else:
+            raise ValueError("Neither GEMINI_API_KEY nor OPENAI_API_KEY found in environment variables")
 
         # Initialize segment merger
         self.merger = SegmentMerger()
@@ -270,12 +283,41 @@ class ContextAwareTranslator:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                response = openai.ChatCompletion.create(
-                    model="gpt-4o",
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": """You are an expert English to Georgian translator specializing in natural, spoken Georgian.
+                if self.backend == 'gemini':
+                    # Use Gemini
+                    prompt = f"""You are an expert English to Georgian translator specializing in natural, spoken Georgian.
+
+Your translations must be:
+1. NATURAL and FLUENT Georgian - NOT word-for-word mechanical translations
+2. Adjusted to Georgian grammar, word order, and sentence structure
+3. Using natural Georgian expressions and idioms where appropriate
+4. Suitable for voiceover/dubbing (spoken language, conversational tone)
+5. Culturally appropriate for Georgian speakers
+6. Preserving the original meaning, emotion, and tone
+
+IMPORTANT: Georgian has different sentence structure than English. Rearrange words naturally.
+Return ONLY the Georgian translation, nothing else.
+
+Translate to natural Georgian:
+
+{english_text}"""
+
+                    response = self.client.models.generate_content(
+                        model=self.model_name,
+                        contents=prompt
+                    )
+                    translation = response.text.strip()
+                    if translation:
+                        return translation
+                else:
+                    # Use OpenAI
+                    import openai
+                    response = openai.ChatCompletion.create(
+                        model="gpt-4o",
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": """You are an expert English to Georgian translator specializing in natural, spoken Georgian.
 
 Your translations must be:
 1. NATURAL and FLUENT Georgian - NOT word-for-word mechanical translations
@@ -287,19 +329,19 @@ Your translations must be:
 
 IMPORTANT: Georgian has different sentence structure than English. Rearrange words naturally.
 Return ONLY the Georgian translation, nothing else."""
-                        },
-                        {
-                            "role": "user",
-                            "content": f"Translate to natural Georgian:\n\n{english_text}"
-                        }
-                    ],
-                    temperature=0.4,  # Slightly higher for more natural variation
-                    max_tokens=500,
-                    timeout=30
-                )
-                translation = response['choices'][0]['message']['content'].strip()
-                if translation:
-                    return translation
+                            },
+                            {
+                                "role": "user",
+                                "content": f"Translate to natural Georgian:\n\n{english_text}"
+                            }
+                        ],
+                        temperature=0.4,
+                        max_tokens=500,
+                        timeout=30
+                    )
+                    translation = response['choices'][0]['message']['content'].strip()
+                    if translation:
+                        return translation
             except Exception as e:
                 logger.error(f"Translation error (attempt {attempt + 1}): {e}")
                 if attempt < max_retries - 1:

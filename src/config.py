@@ -80,8 +80,11 @@ class Config:
         # Check required API keys
         if not cls.VOICEGAIN_API_KEY:
             errors.append("VOICEGAIN_API_KEY is required")
-        if not cls.OPENAI_API_KEY:
-            errors.append("OPENAI_API_KEY is required for Georgian translation")
+
+        # Translation: Either OpenAI or Gemini is required
+        gemini_key = os.getenv('GEMINI_API_KEY')
+        if not cls.OPENAI_API_KEY and not gemini_key:
+            errors.append("Either OPENAI_API_KEY or GEMINI_API_KEY is required for Georgian translation")
 
         # TTS provider - Gemini requires Google credentials
         google_creds = os.getenv('GOOGLE_APPLICATION_CREDENTIALS') or os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')

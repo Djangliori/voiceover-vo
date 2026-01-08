@@ -23,10 +23,10 @@ def init_rate_limiter(app):
     """
     global limiter
 
-    # Development: Higher limits for testing with frequent frontend polling
+    # Development: Very high limits for local testing
     # Production: Stricter limits (50 per hour)
     is_production = os.getenv('FLASK_ENV') == 'production'
-    default_limits = ["200 per day", "50 per hour"] if is_production else ["10000 per hour"]
+    default_limits = ["200 per day", "50 per hour"] if is_production else ["100000 per hour"]
 
     limiter = Limiter(
         get_remote_address,
@@ -44,14 +44,20 @@ def init_rate_limiter(app):
 # Rate limit decorators for common use cases
 def auth_rate_limit():
     """Rate limit for authentication endpoints (stricter)"""
-    return limiter.limit("5 per hour", override_defaults=False)
+    is_production = os.getenv('FLASK_ENV') == 'production'
+    limit = "5 per hour" if is_production else "1000 per hour"
+    return limiter.limit(limit, override_defaults=False)
 
 
 def api_rate_limit():
     """Rate limit for API endpoints (moderate)"""
-    return limiter.limit("30 per minute", override_defaults=False)
+    is_production = os.getenv('FLASK_ENV') == 'production'
+    limit = "30 per minute" if is_production else "1000 per minute"
+    return limiter.limit(limit, override_defaults=False)
 
 
 def download_rate_limit():
     """Rate limit for download endpoints (lenient)"""
-    return limiter.limit("10 per minute", override_defaults=False)
+    is_production = os.getenv('FLASK_ENV') == 'production'
+    limit = "10 per minute" if is_production else "1000 per minute"
+    return limiter.limit(limit, override_defaults=False)

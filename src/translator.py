@@ -1,12 +1,11 @@
 """
 Translation Module
-Translates text to Georgian using OpenAI GPT-4 for natural, context-aware translations
+Translates text to Georgian using Gemini (FREE) or OpenAI GPT-4
 Supports both segment-level and paragraph-level translation modes
 """
 
 import os
 from typing import List, Dict, Optional
-import openai
 from src.config import Config
 from src.logging_config import get_logger
 
@@ -16,16 +15,33 @@ logger = get_logger(__name__)
 class Translator:
     def __init__(self, use_paragraph_mode: bool = True):
         """
-        Initialize OpenAI for AI-powered translation
+        Initialize translator (Gemini or OpenAI)
 
         Args:
             use_paragraph_mode: Whether to use context-aware paragraph translation
         """
-        api_key = os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment variables")
+        # Try Gemini first (FREE), fallback to OpenAI
+        gemini_key = os.getenv('GEMINI_API_KEY')
+        openai_key = os.getenv('OPENAI_API_KEY')
 
-        openai.api_key = api_key
+        if gemini_key:
+            # Use Gemini (FREE!)
+            try:
+                from src.gemini_translator import GeminiTranslator
+                self.backend = GeminiTranslator()
+                logger.info("Using Gemini API for translation (FREE)")
+            except Exception as e:
+                logger.error(f"Gemini initialization failed: {e}")
+                if openai_key:
+                    self._init_openai(openai_key)
+                else:
+                    raise ValueError("No translation API configured (Gemini or OpenAI)")
+        elif openai_key:
+            # Fallback to OpenAI
+            self._init_openai(openai_key)
+        else:
+            raise ValueError("Neither GEMINI_API_KEY nor OPENAI_API_KEY found in environment variables")
+
         self.target_language = 'Georgian'
         self.use_paragraph_mode = use_paragraph_mode
         self.context_translator = None
@@ -40,9 +56,16 @@ class Translator:
                 logger.warning(f"Could not initialize paragraph mode, falling back to segment mode: {e}")
                 self.use_paragraph_mode = False
 
+    def _init_openai(self, api_key: str):
+        """Initialize OpenAI backend"""
+        import openai
+        openai.api_key = api_key
+        self.backend = None  # Will use _translate_single and _translate_segment_mode
+        logger.info("Using OpenAI API for translation")
+
     def translate_segments(self, segments, progress_callback=None, speakers=None):
         """
-        Translate text segments to Georgian using GPT-4 for natural translation
+        Translate text segments to Georgian
 
         Args:
             segments: List of segments with 'text', 'start', 'end'
@@ -52,6 +75,10 @@ class Translator:
         Returns:
             List of segments with translated text added as 'translated_text'
         """
+        # If using Gemini backend, delegate to it
+        if self.backend:
+            return self.backend.translate_segments(segments, progress_callback)
+
         # Use paragraph mode if available and segments have speaker info
         if self.use_paragraph_mode and self.context_translator:
             has_speakers = any('speaker' in seg for seg in segments) or speakers is not None
@@ -245,4 +272,8 @@ Only respond with the translation, no explanations."""
         Returns:
             Translated text
         """
+        # If using Gemini backend, delegate to it
+        if self.backend:
+            return self.backend.translate_text(text)
+
         return self._translate_single(text)
