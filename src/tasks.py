@@ -20,6 +20,7 @@ from src.database import Database, Video
 from src.storage import R2Storage
 from src.config import Config
 from src.logging_config import get_logger
+from src.gender_detector import detect_speaker_genders
 
 load_dotenv()
 logger = get_logger(__name__)
@@ -159,7 +160,7 @@ def process_video_task(self, video_id, youtube_url, user_id=None):
             )
             video_title = video_info['title']
             video_duration_minutes = video_info.get('duration', 0) / 60  # Convert seconds to minutes
-            update_progress(f"✅ Video downloaded: {video_title}", 20)
+            update_progress(f"[OK] Video downloaded: {video_title}", 20)
             logger.info(f"Download complete for {video_id}: {video_title} ({video_duration_minutes:.2f} min)")
         except Exception as e:
             logger.error(f"Download failed for {video_id}: {str(e)}")
@@ -189,16 +190,36 @@ def process_video_task(self, video_id, youtube_url, user_id=None):
             speakers = None
             if transcriber.has_speaker_diarization():
                 speakers = transcriber.get_speakers()
-                update_progress(f"✅ Transcribed with {len(speakers)} speakers detected", 33)
+                update_progress(f"[OK] Transcribed with {len(speakers)} speakers detected", 33)
                 logger.info(f"Speaker diarization: {len(speakers)} speakers detected")
+
+                # Apply pitch-based gender detection if gender is unknown
+                if speakers and any(s.get('gender') == 'unknown' for s in speakers):
+                    try:
+                        update_progress("🎵 Detecting speaker genders from voice pitch...", 31)
+                        logger.info("Applying pitch-based gender detection for unknown genders")
+                        speakers = detect_speaker_genders(
+                            video_info['audio_path'],
+                            segments,
+                            speakers
+                        )
+                        # Log detected genders
+                        for speaker in speakers:
+                            gender = speaker.get('gender', 'unknown')
+                            speaker_label = speaker.get('label', speaker.get('id'))
+                            logger.info(f"Gender detection: {speaker_label} -> {gender}")
+                        update_progress(f"[OK] Detected genders for {len(speakers)} speakers", 33)
+                    except Exception as gender_error:
+                        logger.warning(f"Gender detection failed: {gender_error}")
+                        # Continue without gender detection
             else:
                 segments = transcriber.merge_short_segments(segments)
 
-            update_progress(f"✅ Transcribed speech into {len(segments)} segments", 35)
+            update_progress(f"[OK] Transcribed speech into {len(segments)} segments", 35)
             logger.info(f"Transcription complete for {video_id}: {len(segments)} segments")
         except Exception as e:
             logger.error(f"Transcription failed for {video_id}: {str(e)}", exc_info=True)
-            update_progress(f"❌ Transcription failed: {str(e)}", 35)
+            update_progress(f"[ERROR] Transcription failed: {str(e)}", 35)
             raise
 
         # Step 3: Translate to Georgian (35-50%)
@@ -218,7 +239,7 @@ def process_video_task(self, video_id, youtube_url, user_id=None):
             progress_callback=translation_progress,
             speakers=speakers  # Pass speaker info for context-aware translation
         )
-        update_progress(f"✅ Translated all {len(translated_segments)} segments to Georgian", 50)
+        update_progress(f"[OK] Translated all {len(translated_segments)} segments to Georgian", 50)
 
         # Step 4: Generate Georgian voiceover (50-70%)
         # Check if we have multiple speakers for multi-voice synthesis
@@ -276,7 +297,7 @@ def process_video_task(self, video_id, youtube_url, user_id=None):
                 progress_callback=tts_progress
             )
 
-        update_progress(f"✅ Generated {len(voiceover_segments)} Georgian voiceover clips", 70)
+        update_progress(f"[OK] Generated {len(voiceover_segments)} Georgian voiceover clips", 70)
 
         # Save debug data for inspection
         try:
@@ -337,7 +358,7 @@ def process_video_task(self, video_id, youtube_url, user_id=None):
             mixed_audio_path,
             progress_callback=lambda msg: update_progress(f"🎛️ {msg}", 80)
         )
-        update_progress("✅ Audio tracks mixed successfully", 85)
+        update_progress("[OK] Audio tracks mixed successfully", 85)
 
         # Step 6: Combine with video (85-95%)
         # IMPORTANT: Wait for background video download to complete before combining
@@ -357,22 +378,22 @@ def process_video_task(self, video_id, youtube_url, user_id=None):
             output_filename,
             progress_callback=lambda msg: update_progress(f"🎬 {msg}", 92)
         )
-        update_progress("✅ Video encoding complete", 95)
+        update_progress("[OK] Video encoding complete", 95)
 
         # Step 7: Upload to R2 if configured (95-99%)
         r2_url = None
         if use_r2 and self.storage:
-            update_progress("☁️ Uploading video to cloud storage...", 96)
+            update_progress("[CLOUD] Uploading video to cloud storage...", 96)
             r2_url = self.storage.upload_video(
                 final_video_path,
                 video_id,
-                progress_callback=lambda msg: update_progress(f"☁️ {msg}", 98)
+                progress_callback=lambda msg: update_progress(f"[CLOUD] {msg}", 98)
             )
-            update_progress("✅ Upload complete! Video ready to watch", 99)
+            update_progress("[OK] Upload complete! Video ready to watch", 99)
         else:
             # Use local file path
             r2_url = f"/download/{output_filename}"
-            update_progress("✅ Video saved locally and ready for download", 99)
+            update_progress("[OK] Video saved locally and ready for download", 99)
 
         # Update database
         update_progress("🎉 Processing complete! Your Georgian voiceover is ready!", 100)

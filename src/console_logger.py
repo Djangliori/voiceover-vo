@@ -69,15 +69,15 @@ class ConsoleLogger:
 
             # Color coding for different levels
             if log['level'] == 'ERROR':
-                formatted.append(f"❌ [{timestamp}] {log['message']}")
+                formatted.append(f"[ERROR] [{timestamp}] {log['message']}")
             elif log['level'] == 'WARNING':
-                formatted.append(f"⚠️ [{timestamp}] {log['message']}")
+                formatted.append(f"[WARN] [{timestamp}] {log['message']}")
             elif log['level'] == 'SUCCESS':
-                formatted.append(f"✅ [{timestamp}] {log['message']}")
+                formatted.append(f"[OK] [{timestamp}] {log['message']}")
             elif log['level'] == 'DEBUG':
-                formatted.append(f"🔍 [{timestamp}] {log['message']}")
+                formatted.append(f"[DEBUG] [{timestamp}] {log['message']}")
             else:
-                formatted.append(f"ℹ️ [{timestamp}] {log['message']}")
+                formatted.append(f"[INFO] [{timestamp}] {log['message']}")
 
         return '\n'.join(formatted)
 

@@ -155,13 +155,13 @@ def create_cache() -> RedisCache:
             )
             redis_client.ping()
 
-            logger.info("✅ Redis cache enabled")
+            logger.info("OK: Redis cache enabled")
             return RedisCache(redis_client)
 
         except (RedisConnectionError, RedisError) as e:
             logger.warning(f"Redis connection failed: {e}. Caching disabled.")
 
-    logger.info("⚠️  Redis cache disabled - using no-op cache")
+    logger.info("WARNING: Redis cache disabled - using no-op cache")
     return NoOpCache()
 
 

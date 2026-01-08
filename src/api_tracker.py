@@ -344,14 +344,14 @@ def create_api_tracker():
             # Test connection
             redis_client.ping()
 
-            logger.info("✅ Using Redis-based API tracker (distributed mode)")
+            logger.info("OK: Using Redis-based API tracker (distributed mode)")
             return RedisAPITracker(redis_client)
 
         except (RedisConnectionError, RedisError) as e:
             logger.warning(f"Redis connection failed: {e}. Falling back to file-based tracker.")
 
     # Fallback to file-based tracker
-    logger.info("⚠️  Using file-based API tracker (development mode)")
+    logger.info("WARNING: Using file-based API tracker (development mode)")
     logger.warning("File-based tracker not recommended for production with multiple workers")
     return FileAPITracker()
 

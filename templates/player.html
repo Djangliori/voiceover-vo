@@ -178,7 +178,11 @@
 
         <div class="video-container">
             <video controls autoplay>
+                {% if video.r2_url %}
                 <source src="{{ video.r2_url }}" type="video/mp4">
+                {% else %}
+                <source src="/download/{{ video.video_id }}_georgian.mp4" type="video/mp4">
+                {% endif %}
                 Your browser does not support the video tag.
             </video>
 
@@ -191,7 +195,7 @@
                 </div>
 
                 <div class="actions">
-                    <a href="{{ video.r2_url }}" download class="btn btn-primary">
+                    <a href="{% if video.r2_url %}{{ video.r2_url }}{% else %}/download/{{ video.video_id }}_georgian.mp4{% endif %}" download class="btn btn-primary">
                         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                             <path d="M8 12l-4-4h2.5V2h3v6H12l-4 4z"/>
                             <path d="M2 14h12v2H2v-2z"/>

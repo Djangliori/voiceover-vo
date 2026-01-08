@@ -205,6 +205,15 @@ function updateStatus(data) {
 
 // Show result
 function showResult(data) {
+    // Auto-redirect to watch page when processing completes
+    // This provides YouTube-like experience on voyoutube.com/watch?v=VIDEO_ID
+    if (data.video_id) {
+        console.log('Processing complete! Redirecting to watch page...');
+        window.location.href = `/watch?v=${data.video_id}`;
+        return;
+    }
+
+    // Fallback: show result section if no video_id
     hideAllSections();
     resultSection.classList.remove('hidden');
     processBtn.disabled = false;

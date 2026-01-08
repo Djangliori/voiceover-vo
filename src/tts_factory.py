@@ -9,26 +9,61 @@ from src.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-def get_tts_provider():
+def get_tts_provider(provider='edge'):
     """
-    Get the Gemini TTS provider instance
+    Get the TTS provider instance
+
+    Args:
+        provider: TTS provider to use ('edge', 'gemini', 'gtts')
+                 Default: 'edge' (free, unlimited, multi-voice)
 
     Returns:
-        GeminiTextToSpeech instance
+        TTS provider instance
 
     Raises:
         ValueError: If provider cannot be initialized
     """
-    logger.info("Initializing Gemini TTS provider")
+    # Default to Edge TTS from environment or 'edge' as fallback
+    provider = os.getenv('TTS_PROVIDER', provider).lower()
 
-    try:
-        from src.tts_gemini import GeminiTextToSpeech
-        tts = GeminiTextToSpeech()
-        logger.info("Gemini TTS provider initialized successfully")
-        return tts
-    except Exception as e:
-        logger.error(f"Failed to initialize Gemini TTS: {e}")
-        raise ValueError(f"Gemini TTS initialization failed: {e}")
+    # Try Edge TTS (FREE, unlimited, multi-voice)
+    if provider == 'edge':
+        logger.info("Initializing Edge TTS provider (free, unlimited)")
+        try:
+            from src.tts_edge import EdgeTTSProvider
+            tts = EdgeTTSProvider()
+            logger.info("Edge TTS provider initialized successfully")
+            return tts
+        except Exception as e:
+            logger.error(f"Failed to initialize Edge TTS: {e}")
+            raise ValueError(f"Edge TTS initialization failed: {e}")
+
+    # Gemini TTS (requires Google Cloud credentials, has content filter)
+    elif provider == 'gemini':
+        logger.info("Initializing Gemini TTS provider")
+        try:
+            from src.tts_gemini import GeminiTextToSpeech
+            tts = GeminiTextToSpeech()
+            logger.info("Gemini TTS provider initialized successfully")
+            return tts
+        except Exception as e:
+            logger.error(f"Failed to initialize Gemini TTS: {e}")
+            raise ValueError(f"Gemini TTS initialization failed: {e}")
+
+    # gTTS (free, simple, single voice only)
+    elif provider == 'gtts':
+        logger.info("Initializing gTTS provider")
+        try:
+            from src.tts_gtts import GTTSProvider
+            tts = GTTSProvider()
+            logger.info("gTTS provider initialized successfully")
+            return tts
+        except Exception as e:
+            logger.error(f"Failed to initialize gTTS: {e}")
+            raise ValueError(f"gTTS initialization failed: {e}")
+
+    else:
+        raise ValueError(f"Unknown TTS provider: {provider}")
 
 
 def get_available_providers():

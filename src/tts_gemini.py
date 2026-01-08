@@ -205,12 +205,14 @@ class GeminiTextToSpeech:
                     audio_content = self._generate_silence(duration)
                     break
 
-                # Check if this is a transient 500 error - retry
-                if '500' in error_str or 'unable to generate' in error_str or 'try again' in error_str:
+                # Check if this is a transient error (500, 499, cancelled, timeout) - retry
+                if ('500' in error_str or '499' in error_str or
+                    'unable to generate' in error_str or 'try again' in error_str or
+                    'cancelled' in error_str or 'timeout' in error_str):
                     if attempt < max_retries - 1:
                         import time
                         wait_time = (attempt + 1) * 2  # 2, 4, 6 seconds
-                        logger.warning(f"Segment {index} got 500 error, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                        logger.warning(f"Segment {index} got transient error ({str(e)[:100]}), retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
                         time.sleep(wait_time)
                         continue
                     else:

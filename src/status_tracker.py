@@ -250,14 +250,14 @@ def create_status_tracker():
             # Test connection
             redis_client.ping()
 
-            logger.info("✅ Using Redis-based status tracker (distributed mode)")
+            logger.info("OK: Using Redis-based status tracker (distributed mode)")
             return RedisStatusTracker(redis_client)
 
         except (RedisConnectionError, RedisError) as e:
             logger.warning(f"Redis connection failed: {e}. Falling back to in-memory status tracker.")
 
     # Fallback to in-memory tracker
-    logger.info("⚠️  Using in-memory status tracker (development mode)")
+    logger.info("WARNING: Using in-memory status tracker (development mode)")
     logger.warning("In-memory tracker not shared across workers - use Redis for production")
     return InMemoryStatusTracker()
 

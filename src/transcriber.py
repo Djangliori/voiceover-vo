@@ -1,31 +1,33 @@
 """
-Speech Transcription Module - Uses OpenAI Whisper
-Provides accurate transcription using OpenAI's Whisper model
+Speech Transcription Module - Uses Local Whisper
+Provides accurate transcription using local Whisper (free, no API key needed)
 """
 
-from src.whisper_transcriber import WhisperTranscriber
+from src.local_whisper_transcriber import LocalWhisperTranscriber
 from src.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 
 class Transcriber:
-    """Main transcriber using OpenAI Whisper"""
+    """Main transcriber using Local Whisper"""
 
     def __init__(self):
-        """Initialize OpenAI Whisper transcriber"""
+        """Initialize Local Whisper transcriber"""
         try:
-            self.transcriber = WhisperTranscriber()
-            self.provider = 'whisper'
+            # Use "base" model for good balance of speed/accuracy
+            # Options: "tiny", "base", "small", "medium", "large"
+            self.transcriber = LocalWhisperTranscriber(model_size="base")
+            self.provider = 'local_whisper'
             self.speakers = []
-            logger.info("Transcriber initialized with OpenAI Whisper")
+            logger.info("Transcriber initialized with Local Whisper (base model)")
         except Exception as e:
-            logger.error(f"Failed to initialize Whisper transcriber: {e}")
-            raise ValueError(f"Whisper initialization failed: {e}")
+            logger.error(f"Failed to initialize Local Whisper transcriber: {e}")
+            raise ValueError(f"Local Whisper initialization failed: {e}")
 
     def transcribe(self, audio_path, progress_callback=None):
         """
-        Transcribe audio using OpenAI Whisper
+        Transcribe audio using Local Whisper
 
         Args:
             audio_path: Path to audio file
@@ -34,16 +36,16 @@ class Transcriber:
         Returns:
             List of segments with timestamps and text
         """
-        # Use Whisper transcription
+        # Use Local Whisper transcription
         segments = self.transcriber.transcribe(
             audio_path,
             progress_callback
         )
 
-        # Get speaker info (Whisper provides default single speaker)
+        # Get speaker info
         self.speakers = self.transcriber.get_speakers()
 
-        logger.info(f"Whisper transcription complete: {len(segments)} segments")
+        logger.info(f"Local Whisper transcription complete: {len(segments)} segments")
 
         return segments
 

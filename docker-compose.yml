@@ -11,6 +11,27 @@ services:
     command: redis-server --appendonly yes
     restart: unless-stopped
 
+  # Speaker Detection Service (pyannote.audio)
+  speaker-detection:
+    build:
+      context: ./docker/speaker-detection
+      dockerfile: Dockerfile
+    container_name: voyoutube-speaker-detection
+    ports:
+      - "5002:5002"
+    environment:
+      # Optional: Add your Hugging Face token for better models
+      - HUGGING_FACE_TOKEN=${HUGGING_FACE_TOKEN}
+    volumes:
+      # Share temp directory for audio files
+      - ./temp:/app/temp
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5002/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # Uncomment to run Flower (Celery monitoring) locally
   # flower:
   #   image: mher/flower:latest

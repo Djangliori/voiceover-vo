@@ -209,6 +209,7 @@ def process_video_threading(video_id, youtube_url, user_id=None):
     from src.tts_factory import get_tts_provider
     from src.audio_mixer import AudioMixer
     from src.video_processor import VideoProcessor
+    from src.gender_detector import detect_speaker_genders
 
     video_duration_minutes = 0  # Track for usage charging
 
@@ -253,25 +254,91 @@ def process_video_threading(video_id, youtube_url, user_id=None):
             video_info['audio_path'],
             progress_callback=lambda msg: update_status(f"Transcribing: {msg}", 30)
         )
-        segments = transcriber.merge_short_segments(segments)
+
+        # Check if we have speaker diarization
+        speakers = None
+        if transcriber.has_speaker_diarization():
+            speakers = transcriber.get_speakers()
+            update_status(f"Transcribed with {len(speakers)} speakers detected", 33)
+            logger.info(f"Speaker diarization: {len(speakers)} speakers detected")
+
+            # Apply pitch-based gender detection if gender is unknown
+            if speakers and any(s.get('gender') == 'unknown' for s in speakers):
+                try:
+                    update_status("Detecting speaker genders from voice pitch...", 31)
+                    logger.info("Applying pitch-based gender detection for unknown genders")
+                    speakers = detect_speaker_genders(
+                        video_info['audio_path'],
+                        segments,
+                        speakers
+                    )
+                    # Log detected genders
+                    for speaker in speakers:
+                        gender = speaker.get('gender', 'unknown')
+                        speaker_label = speaker.get('label', speaker.get('id'))
+                        logger.info(f"Gender detection: {speaker_label} -> {gender}")
+                    update_status(f"Detected genders for {len(speakers)} speakers", 35)
+                except Exception as gender_error:
+                    logger.warning(f"Gender detection failed: {gender_error}")
+                    # Continue without gender detection
+        else:
+            segments = transcriber.merge_short_segments(segments)
+
         update_status(f"Transcription complete: {len(segments)} segments", 40)
 
         # Step 3: Translate to Georgian
         update_status("Translating to Georgian...", 45)
         translated_segments = translator.translate_segments(
             segments,
-            progress_callback=lambda msg: update_status(f"Translation: {msg}", 50)
+            progress_callback=lambda msg: update_status(f"Translation: {msg}", 50),
+            speakers=speakers  # Pass speaker info for context-aware translation
         )
         update_status("Translation complete", 55)
 
         # Step 4: Generate Georgian voiceover
-        update_status("Generating Georgian voiceover...", 60)
-        voiceover_segments = tts.generate_voiceover(
-            translated_segments,
-            temp_dir=app.config['TEMP_DIR'],
-            progress_callback=lambda msg: update_status(f"TTS: {msg}", 70)
-        )
-        update_status("Voiceover generation complete", 75)
+        # Check if we have multiple speakers for multi-voice synthesis
+        if speakers and len(speakers) > 1:
+            update_status(f"Starting multi-voice synthesis for {len(speakers)} speakers...", 60)
+
+            # Initialize voice manager
+            from src.voice_manager import VoiceManager
+            voice_manager = VoiceManager()
+
+            # Assign voices to speakers
+            voice_assignments = voice_manager.assign_voices_to_speakers(
+                speakers,
+                segments=translated_segments,
+                auto_detect_gender=True
+            )
+
+            # Log voice assignments
+            for speaker_id, voice in voice_assignments.items():
+                speaker_label = next((s['label'] for s in speakers if s['id'] == speaker_id), speaker_id)
+                logger.info(f"Voice assignment: {speaker_label} -> {voice.name}")
+
+            # Prepare segments with voice assignments
+            voiced_segments = voice_manager.prepare_segments_for_multivoice(
+                translated_segments,
+                voice_assignments
+            )
+
+            # Generate multi-voice voiceover
+            voiceover_segments = voice_manager.generate_voiceover_multivoice(
+                tts,
+                voiced_segments,
+                temp_dir=app.config['TEMP_DIR'],
+                progress_callback=lambda msg: update_status(f"Multi-voice TTS: {msg}", 70)
+            )
+            update_status("Multi-voice generation complete", 75)
+        else:
+            # Single voice
+            update_status("Generating Georgian voiceover...", 60)
+            voiceover_segments = tts.generate_voiceover(
+                translated_segments,
+                temp_dir=app.config['TEMP_DIR'],
+                progress_callback=lambda msg: update_status(f"TTS: {msg}", 70)
+            )
+            update_status("Voiceover generation complete", 75)
 
         # Step 5: Mix audio
         update_status("Mixing audio tracks...", 80)
@@ -839,21 +906,21 @@ if __name__ == '__main__':
                 storage='Cloudflare R2' if use_r2 else 'Local files')
 
     print(f"""
-╔══════════════════════════════════════════════════════════════╗
-║  Georgian Voiceover App - voyoutube.com                      ║
-║  YouTube to Georgian Translation with Voiceover              ║
-╚══════════════════════════════════════════════════════════════╝
+================================================================
+  Georgian Voiceover App - voyoutube.com
+  YouTube to Georgian Translation with Voiceover
+================================================================
 
-🚀 Server starting on http://localhost:{port}
+>> Server starting on http://localhost:{port}
 
-📝 Instructions:
+Instructions:
    1. Open http://localhost:{port} in your browser
    2. Or use: voyoutube.com/watch?v=VIDEO_ID
    3. Video will be automatically processed
    4. Watch directly in browser!
 
-🗄️  Database: {'PostgreSQL' if os.getenv('DATABASE_URL') else 'SQLite'}
-☁️   Storage: {'Cloudflare R2' if use_r2 else 'Local files'}
+Database: {'PostgreSQL' if os.getenv('DATABASE_URL') else 'SQLite'}
+Storage: {'Cloudflare R2' if use_r2 else 'Local files'}
 
 Press CTRL+C to stop the server
 """)
