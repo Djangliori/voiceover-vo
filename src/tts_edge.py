@@ -209,13 +209,40 @@ class EdgeTTSProvider:
         Returns:
             Path to generated audio file
         """
-        # Output file
+        # Edge TTS outputs MP3 by default, so we save as .mp3 first
+        mp3_filename = f"segment_{index:04d}.mp3"
+        mp3_path = temp_path / mp3_filename
+
         wav_filename = f"segment_{index:04d}.wav"
         wav_path = temp_path / wav_filename
 
-        # Use edge-tts to generate audio
+        # Use edge-tts to generate audio (saves as MP3)
         communicate = edge_tts.Communicate(text, voice)
-        await communicate.save(str(wav_path))
+        await communicate.save(str(mp3_path))
+
+        # Convert MP3 to WAV using ffmpeg
+        import subprocess
+        from src.ffmpeg_utils import get_ffmpeg_path
+
+        ffmpeg_path = get_ffmpeg_path()
+        cmd = [
+            ffmpeg_path,
+            '-i', str(mp3_path),
+            '-acodec', 'pcm_s16le',  # 16-bit PCM
+            '-ar', '44100',          # 44.1kHz sample rate
+            '-ac', '1',              # Mono
+            '-y',                    # Overwrite
+            str(wav_path)
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            logger.error(f"ffmpeg conversion failed: {result.stderr}")
+            raise Exception(f"Failed to convert MP3 to WAV: {result.stderr}")
+
+        # Clean up MP3 file
+        if mp3_path.exists():
+            mp3_path.unlink()
 
         return wav_path
 
