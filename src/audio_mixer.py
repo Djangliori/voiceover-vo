@@ -10,8 +10,13 @@ import array
 from pathlib import Path
 from pydub import AudioSegment
 from src.logging_config import get_logger
+from src.ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path
 
 logger = get_logger(__name__)
+
+# Configure pydub to use our ffmpeg/ffprobe paths
+AudioSegment.converter = get_ffmpeg_path()
+AudioSegment.ffprobe = get_ffprobe_path()
 
 
 class AudioMixer:

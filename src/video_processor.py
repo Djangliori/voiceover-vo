@@ -5,6 +5,7 @@ Combines mixed audio with original video to create final output
 
 import subprocess
 from pathlib import Path
+from src.ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path
 
 
 class VideoProcessor:
@@ -33,7 +34,7 @@ class VideoProcessor:
 
         # Use ffmpeg to replace audio track
         cmd = [
-            'ffmpeg',
+            get_ffmpeg_path(),
             '-i', str(video_path),
             '-i', str(audio_path),
             '-c:v', 'copy',  # Copy video stream (no re-encoding)
@@ -70,7 +71,7 @@ class VideoProcessor:
             Dict with video duration, resolution, etc.
         """
         cmd = [
-            'ffprobe',
+            get_ffprobe_path(),
             '-v', 'quiet',
             '-print_format', 'json',
             '-show_format',

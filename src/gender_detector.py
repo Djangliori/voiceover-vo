@@ -10,8 +10,13 @@ import os
 from typing import Dict, List, Optional, Tuple
 from pydub import AudioSegment
 from src.logging_config import get_logger
+from src.ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path
 
 logger = get_logger(__name__)
+
+# Configure pydub to use our ffmpeg/ffprobe paths
+AudioSegment.converter = get_ffmpeg_path()
+AudioSegment.ffprobe = get_ffprobe_path()
 
 # Pitch thresholds for gender classification
 # Male F0: 85-180 Hz, Female F0: 165-255 Hz

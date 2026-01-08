@@ -12,6 +12,7 @@ import requests
 from pathlib import Path
 from src.logging_config import get_logger
 from src.api_tracker import api_tracker
+from src.ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path
 
 logger = get_logger(__name__)
 
@@ -26,8 +27,17 @@ class VideoDownloader:
         self.temp_dir.mkdir(exist_ok=True)
         self.rapidapi_key = os.getenv('RAPIDAPI_KEY')
 
-        if not self.rapidapi_key:
-            raise ValueError("RAPIDAPI_KEY environment variable is required")
+        # Check if yt-dlp is available as fallback
+        self.use_ytdlp = False
+        try:
+            import yt_dlp
+            self.use_ytdlp = True
+            logger.info("yt-dlp available as fallback downloader")
+        except ImportError:
+            logger.warning("yt-dlp not available")
+
+        if not self.rapidapi_key and not self.use_ytdlp:
+            raise ValueError("Either RAPIDAPI_KEY or yt-dlp is required")
 
         # Parallel download state
         self._video_download_thread = None
@@ -36,7 +46,7 @@ class VideoDownloader:
 
     def download_video(self, url, progress_callback=None):
         """
-        Download YouTube video and extract audio using RapidAPI.
+        Download YouTube video and extract audio using RapidAPI or yt-dlp fallback.
         Uses parallel download: audio-only stream downloads first (smaller),
         video stream downloads in background while audio processing starts.
 
@@ -50,18 +60,40 @@ class VideoDownloader:
         Raises:
             Exception: If download fails or API quota is exceeded
         """
-        logger.info(f"Starting parallel download for URL: {url}")
-        logger.info("Using YouTube Media Downloader (DataFanatic) API with parallel streams")
-
-        if progress_callback:
-            progress_callback("Fetching video info from RapidAPI...")
+        logger.info(f"Starting download for URL: {url}")
 
         # Extract video ID from URL
         video_id = self._extract_video_id_from_url(url)
         logger.info(f"Extracted video ID: {video_id}")
 
+        # Try RapidAPI first if key is available, otherwise use yt-dlp
+        if self.rapidapi_key:
+            try:
+                logger.info("Using YouTube Media Downloader (RapidAPI) with parallel streams")
+                return self._download_with_rapidapi(url, video_id, progress_callback)
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"RapidAPI download failed: {error_msg}")
+
+                # If RapidAPI fails with 403 or other errors, try yt-dlp fallback
+                if self.use_ytdlp and ("403" in error_msg or "quota" in error_msg.lower() or "forbidden" in error_msg.lower()):
+                    logger.warning("Falling back to yt-dlp due to RapidAPI error")
+                    return self._download_with_ytdlp(url, video_id, progress_callback)
+                else:
+                    raise
+        elif self.use_ytdlp:
+            logger.info("Using yt-dlp downloader (no RapidAPI key)")
+            return self._download_with_ytdlp(url, video_id, progress_callback)
+        else:
+            raise ValueError("No download method available")
+
+    def _download_with_rapidapi(self, url, video_id, progress_callback=None):
+        """Download using RapidAPI"""
+        if progress_callback:
+            progress_callback("Fetching video info from RapidAPI...")
+
         video_path = self.temp_dir / f"{video_id}.mp4"
-        audio_path = self.temp_dir / f"{video_id}_audio.m4a"  # Audio file (no conversion needed)
+        audio_path = self.temp_dir / f"{video_id}_audio.m4a"
 
         # Reset parallel download state
         self._video_download_error = None
@@ -462,28 +494,10 @@ class VideoDownloader:
     def _verify_audio_file(self, file_path):
         """Verify that a file contains an audio stream using ffprobe"""
         import subprocess
-        import shutil
-
-        # Find ffprobe
-        nix_ffprobe = '/nix/var/nix/profiles/default/bin/ffprobe'
-        if os.path.exists(nix_ffprobe):
-            ffprobe_path = nix_ffprobe
-        else:
-            ffprobe_path = shutil.which('ffprobe')
-            if not ffprobe_path:
-                # Try common locations
-                for path in ['/usr/bin/ffprobe', '/usr/local/bin/ffprobe']:
-                    if os.path.exists(path):
-                        ffprobe_path = path
-                        break
-
-        if not ffprobe_path:
-            logger.warning("ffprobe not found, skipping audio verification")
-            return True  # Assume OK if we can't verify
 
         try:
             cmd = [
-                ffprobe_path,
+                get_ffprobe_path(),
                 '-v', 'error',
                 '-select_streams', 'a',  # Select audio streams only
                 '-show_entries', 'stream=codec_type',
@@ -512,21 +526,7 @@ class VideoDownloader:
 
     def _get_ffmpeg_path(self):
         """Get ffmpeg path"""
-        import shutil
-
-        nix_ffmpeg = '/nix/var/nix/profiles/default/bin/ffmpeg'
-        if os.path.exists(nix_ffmpeg):
-            return nix_ffmpeg
-
-        ffmpeg_path = shutil.which('ffmpeg')
-        if ffmpeg_path:
-            return ffmpeg_path
-
-        for path in ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg']:
-            if os.path.exists(path):
-                return path
-
-        raise Exception("ffmpeg not found")
+        return get_ffmpeg_path()
 
     def _extract_video_id_from_url(self, url):
         """Extract video ID from YouTube URL using consolidated function"""
@@ -539,35 +539,11 @@ class VideoDownloader:
     def _extract_audio(self, video_path, audio_path):
         """Extract audio from video using ffmpeg"""
         import subprocess
-        import shutil
 
         logger.info(f"Running ffmpeg to extract audio from {video_path}")
 
-        # Find ffmpeg - check Nix path first (Railway), then system PATH
-        # Try Nix path first (Railway environment)
-        nix_ffmpeg = '/nix/var/nix/profiles/default/bin/ffmpeg'
-        if os.path.exists(nix_ffmpeg):
-            ffmpeg_path = nix_ffmpeg
-            logger.info(f"Found ffmpeg at Nix path: {ffmpeg_path}")
-        else:
-            # Try system PATH
-            ffmpeg_path = shutil.which('ffmpeg')
-
-            if not ffmpeg_path:
-                # Try other common locations
-                possible_paths = [
-                    '/usr/bin/ffmpeg',          # Standard Linux
-                    '/usr/local/bin/ffmpeg',    # Homebrew/manual install
-                ]
-                for path in possible_paths:
-                    if os.path.exists(path):
-                        ffmpeg_path = path
-                        logger.info(f"Found ffmpeg at: {path}")
-                        break
-
-        if not ffmpeg_path:
-            raise Exception("ffmpeg not found in PATH or common locations. Install ffmpeg or add it to PATH.")
-
+        # Get ffmpeg path using helper function
+        ffmpeg_path = get_ffmpeg_path()
         logger.info(f"Using ffmpeg at: {ffmpeg_path}")
 
         # First, check if video has audio stream
@@ -612,6 +588,98 @@ class VideoDownloader:
                 raise Exception(f"Failed to extract audio: {result.stderr}")
         else:
             logger.info(f"Audio extracted successfully to {audio_path}")
+
+    def _download_with_ytdlp(self, url, video_id, progress_callback=None):
+        """Download using yt-dlp as fallback"""
+        import yt_dlp
+
+        if progress_callback:
+            progress_callback("Downloading with yt-dlp...")
+
+        video_path = self.temp_dir / f"{video_id}.mp4"
+        audio_path = self.temp_dir / f"{video_id}_audio.m4a"
+
+        logger.info(f"Using yt-dlp to download: {url}")
+
+        # yt-dlp options
+        # Use 'best' format which doesn't require merging (no ffmpeg needed for download)
+        ydl_opts = {
+            'format': 'best[ext=mp4]/best',  # Single stream, no merging required
+            'outtmpl': str(self.temp_dir / f'{video_id}.%(ext)s'),
+            'quiet': False,  # Show output for debugging
+            'no_warnings': False,
+            'extract_flat': False,
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # Get video info
+                if progress_callback:
+                    progress_callback("Fetching video info...")
+
+                info = ydl.extract_info(url, download=False)
+                title = info.get('title', 'Unknown')
+                duration = int(info.get('duration', 0))
+
+                logger.info(f"Video info: {title} (duration: {duration}s)")
+
+                # Download video
+                if progress_callback:
+                    progress_callback(f"Downloading: {title}")
+
+                ydl.download([url])
+
+                # Check if video was downloaded
+                if not video_path.exists():
+                    # Try alternate extensions
+                    for ext in ['webm', 'mkv']:
+                        alt_path = self.temp_dir / f"{video_id}.{ext}"
+                        if alt_path.exists():
+                            # Convert to mp4
+                            logger.info(f"Converting {ext} to mp4...")
+                            import subprocess
+
+                            cmd = [get_ffmpeg_path(), '-i', str(alt_path), '-c', 'copy', str(video_path), '-y']
+                            subprocess.run(cmd, capture_output=True)
+                            alt_path.unlink()
+                            break
+
+                if not video_path.exists():
+                    raise Exception("Video download failed - file not found")
+
+                # Extract audio from video
+                if progress_callback:
+                    progress_callback("Extracting audio...")
+
+                logger.info(f"Extracting audio from {video_path}")
+                import subprocess
+
+                cmd = [
+                    get_ffmpeg_path(), '-i', str(video_path),
+                    '-vn',  # No video
+                    '-acodec', 'copy',  # Copy audio codec
+                    str(audio_path),
+                    '-y'  # Overwrite
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+
+                if result.returncode != 0:
+                    logger.error(f"Audio extraction failed: {result.stderr}")
+                    raise Exception(f"Failed to extract audio: {result.stderr}")
+
+                logger.info(f"Download complete via yt-dlp: {video_path}, {audio_path}")
+
+                return {
+                    'video_path': str(video_path),
+                    'audio_path': str(audio_path),
+                    'title': title,
+                    'duration': duration,
+                    'video_id': video_id
+                }
+
+        except Exception as e:
+            logger.error(f"yt-dlp download failed: {e}")
+            raise Exception(f"yt-dlp download error: {e}")
 
     def cleanup(self, video_id):
         """Clean up temporary files for a video"""

@@ -17,6 +17,7 @@ from google.cloud import texttospeech
 from google.oauth2 import service_account
 
 from src.logging_config import get_logger
+from src.ffmpeg_utils import get_ffprobe_path
 
 logger = get_logger(__name__)
 
@@ -54,21 +55,44 @@ class GeminiTextToSpeech:
 
     def _get_credentials(self):
         """Get Google Cloud credentials from environment"""
+        logger.info("=== Google Credentials Debug ===")
+
         # Option 1: JSON credentials stored directly in env var
         creds_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+        logger.info(f"GOOGLE_APPLICATION_CREDENTIALS_JSON: {'SET' if creds_json else 'NOT SET'}")
         if creds_json:
             try:
                 creds_dict = json.loads(creds_json)
+                logger.info("Using credentials from JSON environment variable")
                 return service_account.Credentials.from_service_account_info(creds_dict)
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON: {e}")
 
         # Option 2: Path to credentials file
         creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
-        if creds_path and os.path.exists(creds_path):
-            return service_account.Credentials.from_service_account_file(creds_path)
+        logger.info(f"GOOGLE_APPLICATION_CREDENTIALS: {creds_path}")
+
+        # Try to find the file in multiple locations
+        possible_paths = []
+        if creds_path:
+            possible_paths.append(creds_path)
+
+        # Always check for file in project root
+        project_root = Path(__file__).parent.parent
+        possible_paths.append(str(project_root / 'google-credentials.json'))
+
+        for path in possible_paths:
+            logger.info(f"Checking path: {path}")
+            if path and os.path.exists(path):
+                logger.info(f"Found credentials file: {path}")
+                # Also set the environment variable for subprocess calls
+                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = path
+                return service_account.Credentials.from_service_account_file(path)
+            else:
+                logger.warning(f"Credentials file not found: {path}")
 
         # Option 3: Return None to use Application Default Credentials
+        logger.warning("No credentials found, falling back to Application Default Credentials")
         return None
 
     def generate_voiceover(self, segments, temp_dir="temp", progress_callback=None):
@@ -320,20 +344,7 @@ class GeminiTextToSpeech:
 
     def _get_ffprobe_path(self):
         """Get ffprobe path"""
-        # Check Nix path first (Railway)
-        nix_ffprobe = '/nix/var/nix/profiles/default/bin/ffprobe'
-        if os.path.exists(nix_ffprobe):
-            return nix_ffprobe
-
-        ffprobe_path = shutil.which('ffprobe')
-        if ffprobe_path:
-            return ffprobe_path
-
-        for path in ['/usr/bin/ffprobe', '/usr/local/bin/ffprobe']:
-            if os.path.exists(path):
-                return path
-
-        raise Exception("ffprobe not found")
+        return get_ffprobe_path()
 
     def set_voice(self, voice_name):
         """
