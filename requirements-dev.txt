@@ -1,11 +1,11 @@
 # Development and Testing Dependencies
 
 # Testing Framework
-pytest==7.4.3
+pytest==7.4.4
 pytest-cov==4.1.0              # Code coverage
-pytest-mock==3.12.0            # Mocking support
-pytest-asyncio==0.21.1         # Async test support
-pytest-xdist==3.5.0            # Parallel test execution
+pytest-mock==3.15.1            # Mocking support
+pytest-asyncio==0.26.0         # Async test support
+pytest-xdist==3.8.0            # Parallel test execution
 
 # Test Fixtures and Utilities
 faker==20.1.0                  # Generate fake data for tests
