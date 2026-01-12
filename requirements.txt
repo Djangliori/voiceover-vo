@@ -1,14 +1,14 @@
 # Web Framework
-flask==3.0.0
-flask-cors==4.0.0
+flask==3.1.2
+flask-cors==4.0.2
 
 # Security
 flask-talisman==1.1.0    # HTTPS enforcement, CSRF protection, security headers
-flask-limiter==3.5.0     # Rate limiting
-flask-wtf==1.2.1         # CSRF protection for forms
+flask-limiter==3.12     # Rate limiting
+flask-wtf==1.2.2         # CSRF protection for forms
 
 # Task Queue
-celery==5.3.4
+celery==5.6.2
 redis==5.0.1
 
 # Voicegain API (transcription + diarization + gender/age detection)
@@ -18,7 +18,7 @@ voicegain-speech==1.104.0
 requests>=2.31.0  # Used for RapidAPI and Voicegain calls
 
 # OpenAI API (for Georgian translation only - NOT for transcription)
-openai==0.28.0
+openai==0.28.1
 
 # Google Cloud TTS with Gemini (primary TTS provider)
 google-cloud-texttospeech>=2.29.0
@@ -32,7 +32,7 @@ pydub==0.25.1
 librosa>=0.10.0  # For pitch-based gender detection
 
 # Database
-sqlalchemy==2.0.23
+sqlalchemy==2.0.45
 psycopg2-binary==2.9.9
 alembic==1.13.1  # Database migrations
 
