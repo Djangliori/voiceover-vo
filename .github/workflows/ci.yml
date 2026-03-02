@@ -91,7 +91,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload Bandit report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: bandit-security-report
@@ -104,7 +104,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload Safety report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: safety-vulnerability-report
@@ -245,7 +245,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload coverage HTML report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: htmlcov/
